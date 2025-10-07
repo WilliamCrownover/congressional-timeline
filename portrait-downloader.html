@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Congressional Portrait Downloader</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .controls {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .portrait-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .portrait-card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+            background: white;
+        }
+        .portrait-img {
+            width: 80px;
+            height: 80px;
+            object-fit: cover;
+            border-radius: 50%;
+            margin-bottom: 10px;
+        }
+        .portrait-name {
+            font-size: 12px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .portrait-bioguide {
+            font-size: 10px;
+            color: #666;
+            margin-bottom: 10px;
+        }
+        .download-btn {
+            background: #007cba;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+        }
+        .download-btn:hover {
+            background: #005a87;
+        }
+        .download-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .stats {
+            background: #e8f4f8;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .error {
+            background: #ffeaea;
+            border: 1px solid #ffcccc;
+            color: #cc0000;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .success {
+            background: #eafff1;
+            border: 1px solid #ccffcc;
+            color: #006600;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🏛️ Congressional Portrait Downloader</h1>
+    
+    <div class="controls">
+        <h3>Instructions:</h3>
+        <ol>
+            <li>Load the congressional data</li>
+            <li>The tool will check which portraits are already in your images/ folder</li>
+            <li>Browse portraits that are available online but not yet downloaded</li>
+            <li>Click "Download" on any portrait you want to save locally</li>
+            <li>Downloaded images will be saved to your Downloads folder</li>
+            <li>Manually move them from Downloads to the <code>images/</code> folder in your project</li>
+        </ol>
+        
+        <button onclick="loadCongressionalData()" id="loadBtn">Load Congressional Data</button>
+        <button onclick="downloadAll()" id="downloadAllBtn" disabled>Download All Available (⚠️ Bulk)</button>
+        <button onclick="clearFailedCache()" id="clearCacheBtn" style="background: #dc3545; margin-left: 10px;">Clear Failed Cache</button>
+        
+        <div id="stats" class="stats" style="display: none;">
+            <strong>Statistics:</strong>
+            <span id="statsText"></span>
+        </div>
+    </div>
+
+    <div id="messages"></div>
+    <div id="portraits" class="portrait-grid"></div>
+
+    <script>
+        let congressionalData = [];
+        let uniquePeople = new Map();
+        let localImages = new Set(); // Track which images are already local
+        let failedImages = new Set(); // Track which images failed to load
+        const FAILED_CACHE_KEY = 'congressional-portraits-failed-cache';
+
+        // Load failed cache from localStorage
+        function loadFailedCache() {
+            try {
+                const cached = localStorage.getItem(FAILED_CACHE_KEY);
+                if (cached) {
+                    const failedArray = JSON.parse(cached);
+                    failedImages = new Set(failedArray);
+                    console.log(`Loaded ${failedImages.size} failed portraits from cache`);
+                }
+            } catch (error) {
+                console.warn('Failed to load cache:', error);
+                failedImages = new Set();
+            }
+        }
+
+        // Save failed cache to localStorage
+        function saveFailedCache() {
+            try {
+                const failedArray = Array.from(failedImages);
+                localStorage.setItem(FAILED_CACHE_KEY, JSON.stringify(failedArray));
+            } catch (error) {
+                console.warn('Failed to save cache:', error);
+            }
+        }
+
+        // Clear failed cache
+        function clearFailedCache() {
+            failedImages.clear();
+            localStorage.removeItem(FAILED_CACHE_KEY);
+            displayMessage('✅ Failed portraits cache cleared', 'success');
+        }
+
+        async function checkLocalImages() {
+            localImages.clear();
+            const checkPromises = Array.from(uniquePeople.keys()).map(async (bioguide) => {
+                return new Promise((resolve) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        localImages.add(bioguide);
+                        resolve();
+                    };
+                    img.onerror = () => resolve();
+                    img.src = `./images/${bioguide}.jpg`;
+                });
+            });
+            
+            await Promise.all(checkPromises);
+            displayMessage(`✅ Found ${localImages.size} images already in local images/ folder`, 'success');
+        }
+
+        async function loadCongressionalData() {
+            const loadBtn = document.getElementById('loadBtn');
+            loadBtn.textContent = 'Loading...';
+            loadBtn.disabled = true;
+            
+            // Load failed cache first
+            loadFailedCache();
+            
+            try {
+                const response = await fetch('./example-data.json');
+                if (!response.ok) throw new Error('Failed to load data');
+                
+                congressionalData = await response.json();
+                
+                // Extract unique people
+                uniquePeople.clear();
+                congressionalData.forEach(person => {
+                    if (person.id?.bioguide) {
+                        const bioguide = person.id.bioguide;
+                        if (!uniquePeople.has(bioguide)) {
+                            uniquePeople.set(bioguide, {
+                                bioguide: bioguide,
+                                name: formatName(person.name),
+                                firstName: person.name.first,
+                                lastName: person.name.last
+                            });
+                        }
+                    }
+                });
+                
+                displayMessage(`✅ Loaded ${congressionalData.length} records, found ${uniquePeople.size} unique people`, 'success');
+                
+                // Check which images are already local
+                await checkLocalImages();
+                
+                updateStats();
+                showPortraitsSample();
+                
+                document.getElementById('downloadAllBtn').disabled = false;
+                loadBtn.textContent = 'Reload Data';
+                loadBtn.disabled = false;
+                
+            } catch (error) {
+                displayMessage(`❌ Error loading data: ${error.message}`, 'error');
+                loadBtn.textContent = 'Load Congressional Data';
+                loadBtn.disabled = false;
+            }
+        }
+
+        function formatName(nameObj) {
+            let name = nameObj.first || '';
+            if (nameObj.nickname) name += ` "${nameObj.nickname}"`;
+            if (nameObj.middle) name += ` ${nameObj.middle}`;
+            name += ` ${nameObj.last || ''}`;
+            if (nameObj.suffix) name += ` ${nameObj.suffix}`;
+            return name.trim();
+        }
+
+        function updateStats() {
+            const statsDiv = document.getElementById('stats');
+            const statsText = document.getElementById('statsText');
+            const localCount = localImages.size;
+            const failedCount = failedImages.size;
+            const availableCount = uniquePeople.size - localCount - failedCount;
+            statsText.textContent = `${uniquePeople.size} unique people loaded (${localCount} local, ${failedCount} previously failed, ${availableCount} available to download)`;
+            statsDiv.style.display = 'block';
+        }
+
+        function showPortraitsSample() {
+            const portraitsDiv = document.getElementById('portraits');
+            portraitsDiv.innerHTML = '';
+            
+            // Show first 50 people as a sample
+            const samplePeople = Array.from(uniquePeople.values()).slice(0, 50);
+            
+            samplePeople.forEach(person => {
+                const card = createPortraitCard(person);
+                portraitsDiv.appendChild(card);
+            });
+            
+            if (uniquePeople.size > 50) {
+                const moreDiv = document.createElement('div');
+                moreDiv.style.gridColumn = '1 / -1';
+                moreDiv.style.textAlign = 'center';
+                moreDiv.style.padding = '20px';
+                moreDiv.innerHTML = `<em>Showing first 50 of ${uniquePeople.size} people. Use "Download All" or implement pagination for more.</em>`;
+                portraitsDiv.appendChild(moreDiv);
+            }
+        }
+
+        function createPortraitCard(person) {
+            const card = document.createElement('div');
+            card.className = 'portrait-card';
+            
+            const bioguide = person.bioguide;
+            const imageUrl = `https://bioguide.congress.gov/photo/${bioguide}.jpg`;
+            const isLocal = localImages.has(bioguide);
+            const hasFailed = failedImages.has(bioguide);
+            
+            let statusElement = '';
+            if (isLocal) {
+                statusElement = '<div style="color: #28a745; font-size: 12px; margin: 5px 0;">✅ Already Local</div>';
+            } else if (hasFailed) {
+                statusElement = '<div style="color: #dc3545; font-size: 12px; margin: 5px 0;">❌ Previously Failed</div>';
+            } else {
+                statusElement = `<button class="download-btn" onclick="downloadPortrait('${bioguide}', '${person.name.replace(/'/g, "\\'")}')">Download</button>`;
+            }
+            
+            card.innerHTML = `
+                <img src="${imageUrl}" 
+                     alt="${person.name}" 
+                     class="portrait-img"
+                     onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"
+                     onload="this.style.display='block';">
+                <div style="display: none; width: 80px; height: 80px; background: #f0f0f0; border-radius: 50%; margin: 0 auto 10px; line-height: 80px; color: #999;">No Image</div>
+                <div class="portrait-name">${person.name}</div>
+                <div class="portrait-bioguide">${bioguide}</div>
+                ${statusElement}
+            `;
+            
+            return card;
+        }
+
+        async function downloadPortrait(bioguide, name) {
+            // Check if already local
+            if (localImages.has(bioguide)) {
+                displayMessage(`⚠️ ${name} (${bioguide}) is already in your local images folder`, 'info');
+                return;
+            }
+            
+            // Check if previously failed
+            if (failedImages.has(bioguide)) {
+                displayMessage(`⚠️ ${name} (${bioguide}) previously failed to download`, 'info');
+                return;
+            }
+            
+            const imageUrl = `https://bioguide.congress.gov/photo/${bioguide}.jpg`;
+            
+            try {
+                const response = await fetch(imageUrl, { mode: 'cors' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = `${bioguide}.jpg`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                
+                displayMessage(`✅ Downloaded portrait for ${name} (${bioguide})`, 'success');
+                
+            } catch (error) {
+                // Add to failed cache
+                failedImages.add(bioguide);
+                saveFailedCache();
+                
+                displayMessage(`❌ Failed to download ${name} (${bioguide}): ${error.message}`, 'error');
+                throw error; // Re-throw so downloadAll can count the failure
+            }
+        }
+
+        async function downloadAll() {
+            const availableToDownload = Array.from(uniquePeople.values()).filter(person => 
+                !localImages.has(person.bioguide) && !failedImages.has(person.bioguide)
+            );
+            const localCount = uniquePeople.size - availableToDownload.length - failedImages.size;
+            const failedCount = failedImages.size;
+            
+            if (availableToDownload.length === 0) {
+                displayMessage('✅ All available portraits are either downloaded or previously failed!', 'success');
+                return;
+            }
+            
+            if (!confirm(`This will attempt to download ${availableToDownload.length} portraits (${localCount} already local, ${failedCount} previously failed). Continue?`)) {
+                return;
+            }
+            
+            const downloadAllBtn = document.getElementById('downloadAllBtn');
+            downloadAllBtn.disabled = true;
+            downloadAllBtn.textContent = 'Downloading...';
+            
+            let downloaded = 0;
+            let failed = 0;
+            let skipped = 0;
+            
+            for (const person of availableToDownload) {
+                try {
+                    await downloadPortrait(person.bioguide, person.name);
+                    downloaded++;
+                } catch (error) {
+                    failed++;
+                }
+                
+                downloadAllBtn.textContent = `Downloaded: ${downloaded}, Failed: ${failed}`;
+                
+                // Even faster - only 100ms delay between downloads
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            
+            displayMessage(`✅ Download complete! Downloaded: ${downloaded}, Failed: ${failed}. Failed portraits cached for next session.`, 'success');
+            downloadAllBtn.textContent = 'Download All Available';
+            downloadAllBtn.disabled = false;
+        }
+
+        function displayMessage(message, type) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = type;
+            messageDiv.textContent = message;
+            messagesDiv.appendChild(messageDiv);
+            
+            // Auto-remove messages after 5 seconds (success, error, and info)
+            if (type === 'success' || type === 'error' || type === 'info') {
+                setTimeout(() => {
+                    if (messageDiv.parentNode) {
+                        messageDiv.parentNode.removeChild(messageDiv);
+                    }
+                }, 5000);
+            }
+        }
+
+        // Load data on page load
+        window.addEventListener('load', loadCongressionalData);
+    </script>
+</body>
+</html>
