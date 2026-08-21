@@ -378,27 +378,6 @@
             border-radius: 8px;
             margin: 20px 0;
         }
-        .file-input {
-            margin: 20px 0;
-            padding: 15px;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .file-input input[type="file"] {
-            margin-right: 10px;
-        }
-        .btn {
-            background: #3498db;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        .btn:hover {
-            background: #2980b9;
-        }
         
         /* Portrait tooltip styles */
         .portrait-tooltip {
@@ -552,13 +531,6 @@
 </head>
 <body>
     <h1>U.S. Congressional Timeline - Seat-Centric View</h1>
-    
-    <div class="file-input">
-        <strong>Load Data:</strong>
-        <input type="file" id="fileInput" accept=".json" />
-        <button class="btn" onclick="loadSampleData()">Or Load Congressional Data</button>
-        <p><small>Select your example-data.json file, or click "Load Sample Data" to see a preview with early congressional data.</small></p>
-    </div>
     
     <div class="legend" id="legend" style="display: none;">
         <div class="legend-item">
@@ -727,6 +699,17 @@
                 </label>
             </div>
         </div>
+
+        <!-- Party Graph Options Group -->
+        <div style="margin-bottom: 10px; display: none;" id="partyGraphOptions">
+            <h4 style="margin: 0 0 10px 0; color: #2c3e50; font-size: 14px; font-weight: 600;">Party Graph Options</h4>
+            <div class="toggle-container">
+                <label class="toggle-label">
+                    <input type="checkbox" id="sortPartiesByPercentage"> 
+                    Sort parties by percentage (highest first)
+                </label>
+            </div>
+        </div>
     </div>
     
     <div class="loading" id="loading" style="display: none;">Processing congressional data...</div>
@@ -734,83 +717,150 @@
     <div class="tooltip" id="tooltip"></div>
 
     <script>
-        // Global image cache with localStorage persistence
-        const imageCache = {
-            existing: new Set(),
-            missing: new Set(),
-            checking: new Set()
+        // Configuration constants
+        const CONFIG = {
+            STORAGE_KEY: 'congressional-timeline-missing-images',
+            IMAGE_CHECK_TIMEOUT: 10,
+            TIMELINE_HEIGHT: 60,
+            TIMELINE_WIDTH_OFFSET: 320,
+            CURRENT_YEAR: new Date().getFullYear(),
+            MIN_AGE: 28,
+            MAX_AGE: 85
         };
 
-        // Load cached results from localStorage on page load
-        function loadImageCacheFromStorage() {
-            try {
-                const cachedMissing = localStorage.getItem('congressional-timeline-missing-images');
-                if (cachedMissing) {
-                    const missingImages = JSON.parse(cachedMissing);
-                    missingImages.forEach(bioguide => imageCache.missing.add(bioguide));
+        // Global application state
+        const AppState = {
+            currentData: null,
+            customStateOrder: null,
+            imageCache: {
+                existing: new Set(),
+                missing: new Set(),
+                checking: new Set()
+            }
+        };
+
+        // Image cache management module
+        const ImageCache = {
+            loadFromStorage() {
+                try {
+                    const cachedMissing = localStorage.getItem(CONFIG.STORAGE_KEY);
+                    if (cachedMissing) {
+                        const missingImages = JSON.parse(cachedMissing);
+                        missingImages.forEach(bioguide => AppState.imageCache.missing.add(bioguide));
+                    }
+                } catch (error) {
+                    console.warn('Failed to load image cache from localStorage:', error);
                 }
-            } catch (error) {
-                console.warn('Failed to load image cache from localStorage:', error);
-            }
-        }
+            },
 
-        // Save missing images to localStorage
-        function saveMissingImageToStorage(bioguide) {
-            try {
-                const currentMissing = Array.from(imageCache.missing);
-                localStorage.setItem('congressional-timeline-missing-images', JSON.stringify(currentMissing));
-            } catch (error) {
-                console.warn('Failed to save to localStorage:', error);
-            }
-        }
+            saveToStorage(bioguide) {
+                try {
+                    const currentMissing = Array.from(AppState.imageCache.missing);
+                    localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(currentMissing));
+                } catch (error) {
+                    console.warn('Failed to save to localStorage:', error);
+                }
+            },
 
-        // Check if an image exists - now with localStorage caching
-        function checkImageExists(bioguide) {
-            return new Promise((resolve) => {
+            async checkExists(bioguide) {
                 // Return cached result if available
-                if (imageCache.existing.has(bioguide)) {
-                    resolve(true);
-                    return;
+                if (AppState.imageCache.existing.has(bioguide)) {
+                    return true;
                 }
-                if (imageCache.missing.has(bioguide)) {
-                    resolve(false);
-                    return;
+                if (AppState.imageCache.missing.has(bioguide)) {
+                    return false;
                 }
                 
                 // Avoid duplicate checks
-                if (imageCache.checking.has(bioguide)) {
+                if (AppState.imageCache.checking.has(bioguide)) {
                     // Wait for the ongoing check to complete
-                    const checkInterval = setInterval(() => {
-                        if (!imageCache.checking.has(bioguide)) {
-                            clearInterval(checkInterval);
-                            resolve(imageCache.existing.has(bioguide));
-                        }
-                    }, 10);
-                    return;
+                    return new Promise((resolve) => {
+                        const checkInterval = setInterval(() => {
+                            if (!AppState.imageCache.checking.has(bioguide)) {
+                                clearInterval(checkInterval);
+                                resolve(AppState.imageCache.existing.has(bioguide));
+                            }
+                        }, CONFIG.IMAGE_CHECK_TIMEOUT);
+                    });
                 }
                 
-                imageCache.checking.add(bioguide);
+                AppState.imageCache.checking.add(bioguide);
                 
-                const img = new Image();
-                img.onload = () => {
-                    imageCache.existing.add(bioguide);
-                    imageCache.checking.delete(bioguide);
-                    resolve(true);
-                };
-                img.onerror = () => {
-                    imageCache.missing.add(bioguide);
-                    saveMissingImageToStorage(bioguide); // Save to localStorage
-                    imageCache.checking.delete(bioguide);
-                    resolve(false);
-                };
-                img.src = `images/${bioguide}.jpg`;
-            });
-        }
+                return new Promise((resolve) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        AppState.imageCache.existing.add(bioguide);
+                        AppState.imageCache.checking.delete(bioguide);
+                        resolve(true);
+                    };
+                    img.onerror = () => {
+                        AppState.imageCache.missing.add(bioguide);
+                        this.saveToStorage(bioguide);
+                        AppState.imageCache.checking.delete(bioguide);
+                        resolve(false);
+                    };
+                    img.src = `images/${bioguide}.jpg`;
+                });
+            },
+
+            clear() {
+                localStorage.removeItem(CONFIG.STORAGE_KEY);
+                AppState.imageCache.existing.clear();
+                AppState.imageCache.missing.clear();
+                AppState.imageCache.checking.clear();
+                console.log('Image cache cleared');
+            }
+        };
 
         // Initialize localStorage cache on page load
-        loadImageCacheFromStorage();
+        ImageCache.loadFromStorage();
 
-        // Calculate gender ratio for a seat based on days served per representative
+        // Utility functions module
+        const Utils = {
+            formatPersonName(person) {
+                let personName = person.name.first || '';
+                if (person.name.nickname) {
+                    personName += ` "${person.name.nickname}"`;
+                }
+                if (person.name.middle) {
+                    personName += ` ${person.name.middle}`;
+                }
+                personName += ` ${person.name.last || ''}`;
+                if (person.name.suffix) {
+                    personName += ` ${person.name.suffix}`;
+                }
+                return personName.trim();
+            },
+
+            cleanPartyData(party, startYear) {
+                let cleanedParty = party || 'Unknown';
+                if (party === 'no party' || party === 'No Party') {
+                    cleanedParty = 'No Party';
+                } else if (party === 'Republican' && startYear < 1854) {
+                    cleanedParty = 'Democratic Republican';
+                }
+                return cleanedParty;
+            },
+
+            getWikipediaUrl(person) {
+                return person.id && person.id.wikipedia ? 
+                    `https://en.wikipedia.org/wiki/${encodeURIComponent(person.id.wikipedia).replace(/%20/g, '_')}` : null;
+            },
+
+            getBioguideId(person) {
+                return person.id?.bioguide || `unknown_${Math.random()}`;
+            },
+
+            calculateTermDays(termStart, termEnd) {
+                return (termEnd - termStart) / (1000 * 60 * 60 * 24);
+            },
+
+            calculateAge(birthDate, referenceDate) {
+                return (referenceDate - birthDate) / (1000 * 60 * 60 * 24 * 365.25);
+            }
+        };
+
+        // Gender ratio calculation
         function calculateGenderRatio(seat) {
             const people = Object.values(seat.people || {});
             if (people.length === 0) return { malePercent: 0, femalePercent: 0, hasWomen: false, maleDays: 0, femaleDays: 0 };
@@ -830,8 +880,7 @@
                 
                 // Sum all term days for this person
                 person.terms.forEach(term => {
-                    const termLength = term.end - term.start; // in milliseconds
-                    const termDays = termLength / (1000 * 60 * 60 * 24); // convert to days
+                    const termDays = Utils.calculateTermDays(term.start, term.end);
                     personTotalDays += termDays;
                 });
                 
@@ -904,23 +953,354 @@
             return `rgb(${r}, ${g}, ${b})`;
         }
 
-        function classifyPartyForStats(party) {
-            if (!party) return 'other';
-            
-            // Clean up the party name for exact matching
-            const partyLower = party.toLowerCase().trim();
-            
-            // Only exact matches for main parties (Democrat and Republican)
-            // All variations and sub-parties go to "other"
-            switch(partyLower) {
-                case 'democrat':
-                case 'democratic':
+        // Party classification and color management
+        const PartyManager = {
+            colors: {
+                // Main parties
+                'democrat': 'blue',
+                'republican': 'red',
+                'crawfordrepublican': 'red',
+                
+                // Republican variations
+                'liberalrepublican': 'rgb(136, 0, 0)',
+                'socialist': 'rgb(136, 0, 0)',
+                'americanlabor': 'rgb(136, 0, 0)',
+                'populardemocrat': 'rgb(136, 0, 0)',
+                'readjuster': 'rgb(136, 0, 0)',
+                'readjusterdemocrat': 'rgb(136, 0, 0)',
+                'silverrepublican': 'rgb(255, 174, 174)',
+                'indrepublican': 'rgb(255, 174, 174)',
+                
+                // Democrat variations
+                'inddemocrat': 'rgb(188, 188, 255)',
+                'independentdemocrat': 'rgb(188, 188, 255)',
+                'nullifier': 'rgb(0, 0, 163)',
+                'statesrights': 'rgb(0, 0, 163)',
+                'newprogressive': 'rgb(0, 0, 163)',
+                
+                // Independent/Unknown
+                'independent': 'rgb(143, 143, 143)',
+                'nonpartisan': 'rgb(143, 143, 143)',
+                'al': 'rgb(143, 143, 143)',
+                'unknown': 'rgb(143, 143, 143)',
+                'blankparty': 'rgb(143, 143, 143)',
+                'no party': 'rgb(128, 128, 128)',
+                
+                // Whig and related parties
+                'whig': 'rgb(255, 230, 0)',
+                'constitutionalunionist': 'rgb(255, 230, 0)',
+                'libertarian': 'rgb(255, 230, 0)',
+                'antimasonic': 'rgb(255, 246, 164)',
+                'antimason': 'rgb(255, 246, 164)',
+                'indwhig': 'rgb(255, 246, 164)',
+                
+                // Administration parties
+                'proadministration': 'rgb(232, 232, 232)',
+                'antiadministration': 'rgb(43, 43, 43)',
+                
+                // Federalist and related
+                'federalist': 'rgb(195, 0, 255)',
+                'coalitionist': 'rgb(195, 0, 255)',
+                
+                // Democratic Republican
+                'democraticrepublican': 'rgb(0, 150, 0)',
+                
+                // Early party factions - Adams/Anti-Jackson
+                'adams': 'rgb(255, 136, 0)',
+                'adamsdemocrat': 'rgb(255, 136, 0)',
+                'antijacksonian': 'rgb(255, 136, 0)',
+                'antijackson': 'rgb(255, 136, 0)',
+                'indrepublicandemocrat': 'rgb(255, 136, 0)',
+                
+                // Jackson faction
+                'jackson': 'rgb(115, 136, 255)',
+                'jacksonian': 'rgb(115, 136, 255)',
+                'jacksonrepublican': 'rgb(115, 136, 255)',
+                'jacksonianrepublican': 'rgb(115, 136, 255)',
+                
+                // Liberty and anti-slavery
+                'liberty': 'rgb(34, 214, 190)',
+                'antilecomptondemocrat': 'rgb(34, 214, 190)',
+                
+                // Liberal variations
+                'democratliberal': 'rgb(160, 255, 242)',
+                'liberal': 'rgb(160, 255, 242)',
+                
+                // Free Soil
+                'freesoil': 'greenyellow',
+                
+                // Union parties
+                'union': 'rgb(255, 136, 255)',
+                'unionist': 'rgb(255, 136, 255)',
+                'unconditionalunionist': 'rgb(255, 136, 255)',
+                'uniondemocrat': 'rgb(255, 136, 255)',
+                
+                // Populist and labor
+                'populist': 'rgb(144, 205, 255)',
+                'unionlabor': 'rgb(144, 205, 255)',
+                'democraticandunionlabor': 'rgb(144, 205, 255)',
+                
+                // American party
+                'american': 'rgb(240, 42, 240)',
+                
+                // Farmer-Labor
+                'farmerlabor': 'rgb(42, 240, 174)',
+                
+                // Progressive
+                'progressive': 'rgb(0, 90, 0)',
+                'progressiverepublican': 'rgb(0, 90, 0)',
+                
+                // Silver parties
+                'silver': 'rgb(82, 82, 82)',
+                'freesilver': 'rgb(82, 82, 82)',
+                
+                // Conservative
+                'conservative': 'rgb(230, 84, 0)',
+                'conservativerepublican': 'rgb(230, 84, 0)',
+                'republicanconservative': 'rgb(230, 84, 0)',
+                
+                // Law and Order
+                'lawandorder': 'rgb(23, 153, 136)',
+                
+                // Greenback
+                'nationalgreenbacker': 'green',
+                
+                // Prohibition
+                'prohibitionist': 'rgb(196, 196, 21)',
+                
+                // Default
+                'other': '#95a5a6'
+            },
+
+            classifyForStats(party) {
+                if (!party) return 'other';
+                
+                const partyLower = party.toLowerCase().trim();
+                
+                switch(partyLower) {
+                    case 'democrat':
+                    case 'democratic':
+                        return 'democrat';
+                    case 'republican':
+                        return 'republican';
+                    default:
+                        return 'other';
+                }
+            },
+
+            normalizeForGraph(party) {
+                if (!party) return 'unknown';
+                
+                const partyLower = party.toLowerCase().replace(/\s+/g, '').replace(/-/g, '');
+                
+                // Check for Democratic Republican first
+                if (partyLower.includes('democraticrepublican') || partyLower === 'democraticrepublican') {
+                    return 'democraticrepublican';
+                }
+                
+                // Check for specific party mappings BEFORE general party checks
+                const specificMapping = this.getSpecificPartyMapping(partyLower);
+                if (specificMapping) {
+                    return specificMapping;
+                }
+                
+                // Only match EXACT democrat/democratic parties (not compound parties)
+                if (partyLower === 'democrat' || partyLower === 'democratic') {
                     return 'democrat';
-                case 'republican':
+                }
+                
+                // Only match EXACT republican parties (not compound parties)
+                if (partyLower === 'republican') {
                     return 'republican';
-                default:
-                    return 'other';
+                }
+                
+                // Return the normalized party name as-is if no specific mapping found
+                return partyLower;
+            },
+
+            getSpecificPartyMapping(partyLower) {
+                const mappings = {
+                    // Main party variants
+                    'democrat': 'democrat',
+                    'democratic': 'democrat',
+                    'republican': 'republican',
+                    
+                    // Crawford Republican - specific early Republican faction
+                    'crawfordrepublican': 'crawfordrepublican',
+                    'crawford-republican': 'crawfordrepublican',
+                    
+                    // Republican variations
+                    'liberalrepublican': 'liberalrepublican',
+                    'liberal-republican': 'liberalrepublican',
+                    'socialist': 'socialist',
+                    'americanlabor': 'americanlabor',
+                    'american-labor': 'americanlabor',
+                    'populardemocrat': 'populardemocrat',
+                    'popular-democrat': 'populardemocrat',
+                    'readjuster': 'readjuster',
+                    'readjusterdemocrat': 'readjusterdemocrat',
+                    'readjuster-democrat': 'readjusterdemocrat',
+                    'silverrepublican': 'silverrepublican',
+                    'silver-republican': 'silverrepublican',
+                    'indrepublican': 'indrepublican',
+                    'ind-republican': 'indrepublican',
+                    'independentrepublican': 'indrepublican',
+                    'independent-republican': 'indrepublican',
+                    
+                    // Democrat variations
+                    'inddemocrat': 'inddemocrat',
+                    'ind-democrat': 'inddemocrat',
+                    'independentdemocrat': 'independentdemocrat',
+                    'independent-democrat': 'independentdemocrat',
+                    'nullifier': 'nullifier',
+                    'statesrights': 'statesrights',
+                    'states-rights': 'statesrights',
+                    'newprogressive': 'newprogressive',
+                    'new-progressive': 'newprogressive',
+                    
+                    // Independent/Unknown variants
+                    'independent': 'independent',
+                    'nonpartisan': 'nonpartisan',
+                    'non-partisan': 'nonpartisan',
+                    'al': 'al',
+                    'unknown': 'unknown',
+                    'blankparty': 'blankparty',
+                    'blank-party': 'blankparty',
+                    'noparty': 'no party',
+                    'no party': 'no party',
+                    
+                    // Whig and related parties
+                    'whig': 'whig',
+                    'constitutionalunionist': 'constitutionalunionist',
+                    'constitutional-unionist': 'constitutionalunionist',
+                    'libertarian': 'libertarian',
+                    'indwhig': 'indwhig',
+                    'ind-whig': 'indwhig',
+                    'independentwhig': 'indwhig',
+                    'independent-whig': 'indwhig',
+                    
+                    // Federalist and related
+                    'federalist': 'federalist',
+                    
+                    // Democratic Republican
+                    'democraticrepublican': 'democraticrepublican',
+                    'democratic-republican': 'democraticrepublican',
+                    
+                    // Anti-Jacksonian variants
+                    'antijacksonian': 'antijacksonian',
+                    'antijackson': 'antijacksonian',
+                    'anti-jacksonian': 'antijacksonian',
+                    'anti-jackson': 'antijacksonian',
+                    
+                    // Adams variants
+                    'adams': 'adams',
+                    'adamsdemocrat': 'adamsdemocrat',
+                    'adams-democrat': 'adamsdemocrat',
+                    'indrepublicandemocrat': 'indrepublicandemocrat',
+                    'independentrepublicandemocrat': 'indrepublicandemocrat',
+                    'independent-republican-democrat': 'indrepublicandemocrat',
+                    'ind.republicandemocrat': 'indrepublicandemocrat',
+                    'indrepublican-democrat': 'indrepublicandemocrat',
+                    'ind.republican-democrat': 'indrepublicandemocrat',
+                    'ind republican-democrat': 'indrepublicandemocrat',
+                    
+                    // Jackson variants
+                    'jackson': 'jackson',
+                    'jacksonian': 'jacksonian',
+                    'jacksonrepublican': 'jacksonrepublican',
+                    'jacksonianrepublican': 'jacksonianrepublican',
+                    'jackson-republican': 'jacksonrepublican',
+                    'jacksonian-republican': 'jacksonianrepublican',
+                    
+                    // Farmer-Labor
+                    'farmerlabor': 'farmerlabor',
+                    'farmer-labor': 'farmerlabor',
+                    
+                    // Progressive variants
+                    'progressive': 'progressive',
+                    'progressiverepublican': 'progressiverepublican',
+                    'progressive-republican': 'progressiverepublican',
+                    
+                    // Conservative variants
+                    'conservative': 'conservative',
+                    'conservativerepublican': 'conservativerepublican',
+                    'republicanconservative': 'conservativerepublican',
+                    'republican-conservative': 'conservativerepublican',
+                    
+                    // Anti-Masonic variants
+                    'antimasonic': 'antimasonic',
+                    'antimason': 'antimason',
+                    'anti-masonic': 'antimasonic',
+                    'anti-mason': 'antimason',
+                    
+                    // Administration variants
+                    'pro-administration': 'proadministration',
+                    'proadministration': 'proadministration',
+                    'anti-administration': 'antiadministration',
+                    'antiadministration': 'antiadministration',
+                    
+                    // Liberty variants
+                    'liberty': 'liberty',
+                    'anti-lecomptondemocrat': 'antilecomptondemocrat',
+                    'antilecomptondemocrat': 'antilecomptondemocrat',
+                    'anti-lecompton-democrat': 'antilecomptondemocrat',
+                    
+                    // Liberal variants
+                    'liberal': 'liberal',
+                    'democrat-liberal': 'democratliberal',
+                    'democratliberal': 'democratliberal',
+                    
+                    // Free Soil
+                    'freesoil': 'freesoil',
+                    'free-soil': 'freesoil',
+                    
+                    // Union variants
+                    'union': 'union',
+                    'unionist': 'unionist',
+                    'unconditionalunionist': 'unconditionalunionist',
+                    'unconditional-unionist': 'unconditionalunionist',
+                    'uniondemocrat': 'uniondemocrat',
+                    'union-democrat': 'uniondemocrat',
+                    
+                    // Populist and Labor
+                    'populist': 'populist',
+                    'unionlabor': 'unionlabor',
+                    'union-labor': 'unionlabor',
+                    'democraticandunionlabor': 'democraticandunionlabor',
+                    'democratic-and-union-labor': 'democraticandunionlabor',
+                    
+                    // American party
+                    'american': 'american',
+                    
+                    // Silver variants
+                    'silver': 'silver',
+                    'freesilver': 'freesilver',
+                    'free-silver': 'freesilver',
+                    
+                    // Law and Order
+                    'lawandorder': 'lawandorder',
+                    'law-and-order': 'lawandorder',
+                    
+                    // Greenback
+                    'nationalgreenbacker': 'nationalgreenbacker',
+                    'national-greenbacker': 'nationalgreenbacker',
+                    
+                    // Prohibition
+                    'prohibitionist': 'prohibitionist',
+                    
+                    // Coalitionist
+                    'coalitionist': 'coalitionist'
+                };
+                return mappings[partyLower];
+            },
+
+            getColor(party) {
+                return this.colors[party] || this.colors.other;
             }
+        };
+
+        function classifyPartyForStats(party) {
+            return PartyManager.classifyForStats(party);
         }
 
         function calculatePartyStats(seat) {
@@ -938,15 +1318,10 @@
                 
                 // Calculate days served by this person in this specific seat
                 seatTerms.forEach(term => {
-                    const termLength = term.end - term.start; // in milliseconds
-                    const termDays = termLength / (1000 * 60 * 60 * 24); // convert to days
+                    const termDays = Utils.calculateTermDays(term.start, term.end);
                     
                     // Clean party data for historical accuracy
-                    let cleanedParty = term.party || 'Unknown';
-                    const startYear = term.start.getFullYear();
-                    if (term.party === 'Republican' && startYear < 1854) {
-                        cleanedParty = 'Democratic Republican';
-                    }
+                    const cleanedParty = Utils.cleanPartyData(term.party, term.start.getFullYear());
                     
                     // Use strict party classification (only exact matches)
                     const partyCategory = classifyPartyForStats(cleanedParty);
@@ -1014,7 +1389,7 @@
                         // Calculate start age (age when very first congressional term began)
                         const firstTermStart = allPersonTerms[0].start;
                         if (firstTermStart && birthdayDate) {
-                            const startAge = (firstTermStart - birthdayDate) / (1000 * 60 * 60 * 24 * 365.25);
+                            const startAge = Utils.calculateAge(birthdayDate, firstTermStart);
                             if (startAge > 0 && startAge < 120) { // Sanity check
                                 totalStartAge += startAge;
                                 peopleWithStartAge++;
@@ -1024,7 +1399,7 @@
                         // Calculate retirement age (age when very last congressional term ended)
                         const lastTermEnd = allPersonTerms[allPersonTerms.length - 1].end;
                         if (lastTermEnd && birthdayDate) {
-                            const retireAge = (lastTermEnd - birthdayDate) / (1000 * 60 * 60 * 24 * 365.25);
+                            const retireAge = Utils.calculateAge(birthdayDate, lastTermEnd);
                             if (retireAge > 0 && retireAge < 120) { // Sanity check
                                 totalRetireAge += retireAge;
                                 peopleWithRetireAge++;
@@ -1048,12 +1423,135 @@
 
         // Clear localStorage cache (useful for debugging)
         function clearImageCache() {
-            localStorage.removeItem('congressional-timeline-missing-images');
-            imageCache.existing.clear();
-            imageCache.missing.clear();
-            imageCache.checking.clear();
-            console.log('Image cache cleared');
+            ImageCache.clear();
         }
+        
+        // Event handling module
+        const EventHandlers = {
+            init() {
+                this.bindViewModeToggle();
+                this.bindOverlayToggles();
+                this.bindStateOrderingToggle();
+                this.bindPartyDateRange();
+                this.bindTerritoriesToggle();
+                this.bindPartyGraphOptions();
+            },
+
+            bindViewModeToggle() {
+                document.querySelectorAll('input[name="viewMode"]').forEach(radio => {
+                    radio.addEventListener('change', this.handleViewModeChange.bind(this));
+                });
+            },
+
+            handleViewModeChange(event) {
+                if (!AppState.currentData) return;
+
+                // Clear custom state order when switching away from stacked view
+                if (event.target.value !== 'stacked') {
+                    AppState.customStateOrder = null;
+                }
+                
+                // Show/hide party graph options based on view mode
+                const partyGraphOptions = document.getElementById('partyGraphOptions');
+                if (partyGraphOptions) {
+                    partyGraphOptions.style.display = event.target.value === 'party-graph' ? 'block' : 'none';
+                }
+                
+                const viewModeHandlers = {
+                    'individual': () => processAndVisualize(AppState.currentData),
+                    'collapsed': () => processAndVisualizeCollapsed(AppState.currentData),
+                    'stacked': () => processAndVisualizeStacked(AppState.currentData),
+                    'party-graph': () => processAndVisualizePartyGraph(AppState.currentData)
+                };
+
+                const handler = viewModeHandlers[event.target.value];
+                if (handler) handler();
+            },
+
+            bindOverlayToggles() {
+                const toggles = [
+                    { id: 'civilWarOverlay', handler: toggleCivilWarOverlay },
+                    { id: 'civilRightsActLine', handler: toggleCivilRightsActLine },
+                    { id: 'statehoodLines', handler: toggleStatehoodLines }
+                ];
+
+                toggles.forEach(({ id, handler }) => {
+                    const element = document.getElementById(id);
+                    if (element) {
+                        element.addEventListener('change', function() {
+                            handler(this.checked);
+                        });
+                    }
+                });
+            },
+
+            bindStateOrderingToggle() {
+                document.querySelectorAll('input[name="stateOrdering"]').forEach(radio => {
+                    radio.addEventListener('change', this.handleStateOrderingChange.bind(this));
+                });
+            },
+
+            handleStateOrderingChange(event) {
+                if (!AppState.currentData) return;
+
+                // Clear custom state order when switching to predefined ordering
+                AppState.customStateOrder = null;
+                
+                // Show/hide party date range controls
+                const partyControls = document.getElementById('partyDateRangeControls');
+                if (partyControls) {
+                    partyControls.style.display = event.target.value === 'party' ? 'block' : 'none';
+                }
+                
+                this.refreshCurrentView();
+            },
+
+            bindPartyDateRange() {
+                const applyButton = document.getElementById('applyPartyDateRange');
+                if (applyButton) {
+                    applyButton.addEventListener('click', () => {
+                        if (AppState.currentData && document.querySelector('input[name="stateOrdering"]:checked').value === 'party') {
+                            EventHandlers.refreshCurrentView();
+                        }
+                    });
+                }
+            },
+
+            bindTerritoriesToggle() {
+                const territoriesToggle = document.getElementById('showTerritories');
+                if (territoriesToggle) {
+                    territoriesToggle.addEventListener('change', () => {
+                        if (AppState.currentData) {
+                            EventHandlers.refreshCurrentView();
+                        }
+                    });
+                }
+            },
+
+            bindPartyGraphOptions() {
+                const sortPartiesToggle = document.getElementById('sortPartiesByPercentage');
+                if (sortPartiesToggle) {
+                    sortPartiesToggle.addEventListener('change', () => {
+                        if (AppState.currentData) {
+                            EventHandlers.refreshCurrentView();
+                        }
+                    });
+                }
+            },
+
+            refreshCurrentView() {
+                const viewMode = document.querySelector('input[name="viewMode"]:checked')?.value;
+                const viewModeHandlers = {
+                    'individual': () => processAndVisualize(AppState.currentData),
+                    'collapsed': () => processAndVisualizeCollapsed(AppState.currentData),
+                    'stacked': () => processAndVisualizeStacked(AppState.currentData),
+                    'party-graph': () => processAndVisualizePartyGraph(AppState.currentData)
+                };
+
+                const handler = viewModeHandlers[viewMode];
+                if (handler) handler();
+            }
+        };
         
         // Statehood dates data
         const statehoodDates = [
@@ -1101,118 +1599,6 @@
         // Custom ordering for stacked view drag and drop
         let customStateOrder = null;
 
-        // File input handler
-        document.getElementById('fileInput').addEventListener('change', function(event) {
-            const file = event.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = async function(e) {
-                    try {
-                        const data = JSON.parse(e.target.result);
-                        await processAndVisualize(data);
-                    } catch (error) {
-                        showError('Error parsing JSON file: ' + error.message);
-                    }
-                };
-                reader.readAsText(file);
-            }
-        });
-
-        // View mode toggle handlers
-        let currentData = null;
-        document.querySelectorAll('input[name="viewMode"]').forEach(radio => {
-            radio.addEventListener('change', function() {
-                if (currentData) {
-                    // Clear custom state order when switching away from stacked view
-                    if (this.value !== 'stacked') {
-                        customStateOrder = null;
-                    }
-                    
-                    if (this.value === 'individual') {
-                        processAndVisualize(currentData);
-                    } else if (this.value === 'collapsed') {
-                        processAndVisualizeCollapsed(currentData);
-                    } else if (this.value === 'stacked') {
-                        processAndVisualizeStacked(currentData);
-                    } else if (this.value === 'party-graph') {
-                        processAndVisualizePartyGraph(currentData);
-                    }
-                }
-            });
-        });
-
-        // Civil War overlay toggle handler
-        document.getElementById('civilWarOverlay').addEventListener('change', function() {
-            toggleCivilWarOverlay(this.checked);
-        });
-
-        // Civil Rights Act line toggle handler
-        document.getElementById('civilRightsActLine').addEventListener('change', function() {
-            toggleCivilRightsActLine(this.checked);
-        });
-
-        // Statehood lines toggle handler
-        document.getElementById('statehoodLines').addEventListener('change', function() {
-            toggleStatehoodLines(this.checked);
-        });
-
-        // State ordering toggle handler
-        document.querySelectorAll('input[name="stateOrdering"]').forEach(radio => {
-            radio.addEventListener('change', function() {
-                if (currentData) {
-                    // Clear custom state order when switching to predefined ordering
-                    customStateOrder = null;
-                    
-                    // Show/hide party date range controls
-                    const partyControls = document.getElementById('partyDateRangeControls');
-                    if (this.value === 'party') {
-                        partyControls.style.display = 'block';
-                    } else {
-                        partyControls.style.display = 'none';
-                    }
-                    
-                    const viewMode = document.querySelector('input[name="viewMode"]:checked').value;
-                    if (viewMode === 'individual') {
-                        processAndVisualize(currentData);
-                    } else if (viewMode === 'collapsed') {
-                        processAndVisualizeCollapsed(currentData);
-                    } else if (viewMode === 'stacked') {
-                        processAndVisualizeStacked(currentData);
-                    }
-                }
-            });
-        });
-
-        // Party date range apply button handler
-        document.getElementById('applyPartyDateRange').addEventListener('click', function() {
-            if (currentData && document.querySelector('input[name="stateOrdering"]:checked').value === 'party') {
-                const viewMode = document.querySelector('input[name="viewMode"]:checked').value;
-                if (viewMode === 'individual') {
-                    processAndVisualize(currentData);
-                } else if (viewMode === 'collapsed') {
-                    processAndVisualizeCollapsed(currentData);
-                } else if (viewMode === 'stacked') {
-                    processAndVisualizeStacked(currentData);
-                }
-            }
-        });
-
-        // Territories toggle handler
-        document.getElementById('showTerritories').addEventListener('change', function() {
-            if (currentData) {
-                const viewMode = document.querySelector('input[name="viewMode"]:checked').value;
-                if (viewMode === 'individual') {
-                    processAndVisualize(currentData);
-                } else if (viewMode === 'collapsed') {
-                    processAndVisualizeCollapsed(currentData);
-                } else if (viewMode === 'stacked') {
-                    processAndVisualizeStacked(currentData);
-                } else if (viewMode === 'party-graph') {
-                    processAndVisualizePartyGraph(currentData);
-                }
-            }
-        });
-
         // Function to set party date range (used by preset buttons)
         function setPartyDateRange(fromYear, toYear) {
             document.getElementById('partyFromYear').value = fromYear;
@@ -1254,27 +1640,40 @@
             });
         }
 
-        function loadSampleData() {
+        async function loadCongressionalData() {
             document.getElementById('loading').style.display = 'block';
             
-            // Load the full example-data.json file automatically
-            fetch('example-data.json')
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .then(async data => {
-                    document.getElementById('loading').style.display = 'none';
-                    console.log('Loaded', data.length, 'congressional records from example-data.json');
-                    await processAndVisualize(data);
-                })
-                .catch(error => {
-                    document.getElementById('loading').style.display = 'none';
-                    console.error('Error loading example-data.json:', error);
-                    showError('Failed to load example-data.json. Make sure the file exists and you are serving from a web server.');
-                });
+            try {
+                // Load both congressional and presidential data
+                const [congressionalResponse, presidentialResponse] = await Promise.all([
+                    fetch('example-data.json'),
+                    fetch('presidential-data.json')
+                ]);
+                
+                if (!congressionalResponse.ok) {
+                    throw new Error(`HTTP error loading congressional data! status: ${congressionalResponse.status}`);
+                }
+                if (!presidentialResponse.ok) {
+                    throw new Error(`HTTP error loading presidential data! status: ${presidentialResponse.status}`);
+                }
+                
+                const congressionalData = await congressionalResponse.json();
+                const presidentialData = await presidentialResponse.json();
+                
+                // Merge presidential data with congressional data
+                const combinedData = [...congressionalData, ...presidentialData];
+                
+                document.getElementById('loading').style.display = 'none';
+                console.log('Loaded', congressionalData.length, 'congressional records from example-data.json');
+                console.log('Loaded', presidentialData.length, 'presidential records from presidential-data.json');
+                console.log('Combined total:', combinedData.length, 'records');
+                
+                await processAndVisualize(combinedData);
+            } catch (error) {
+                document.getElementById('loading').style.display = 'none';
+                console.error('Error loading data:', error);
+                showError('Failed to load data files. Make sure the files exist and you are serving from a web server.');
+            }
         }
 
         function showError(message) {
@@ -1284,7 +1683,7 @@
 
         async function processAndVisualize(data) {
             // Store data for view mode switching
-            currentData = data;
+            AppState.currentData = data;
             
             // Clear previous timeline
             document.getElementById('timeline').innerHTML = '';
@@ -1297,24 +1696,12 @@
             
             // First pass: collect all terms for each person
             data.forEach(person => {
-                // Create formatted name: first "nickname" middle last suffix
-                let personName = person.name.first || '';
-                if (person.name.nickname) {
-                    personName += ` "${person.name.nickname}"`;
-                }
-                if (person.name.middle) {
-                    personName += ` ${person.name.middle}`;
-                }
-                personName += ` ${person.name.last || ''}`;
-                if (person.name.suffix) {
-                    personName += ` ${person.name.suffix}`;
-                }
-                personName = personName.trim();
+                // Create formatted name using utility function
+                const personName = Utils.formatPersonName(person);
                 
                 // Use bioguide as unique identifier
-                const personId = person.id?.bioguide || `unknown_${Math.random()}`;
-                const wikipediaUrl = person.id && person.id.wikipedia ? 
-                    `https://en.wikipedia.org/wiki/${encodeURIComponent(person.id.wikipedia).replace(/%20/g, '_')}` : null;
+                const personId = Utils.getBioguideId(person);
+                const wikipediaUrl = Utils.getWikipediaUrl(person);
                 
                 // Store all terms for this person
                 if (!allPeopleTerms[personId]) {
@@ -1331,16 +1718,24 @@
                 
                 person.terms.forEach(term => {
                     const chamber = term.type;
-                    const seatKey = chamber === 'sen' ? 
-                        `${term.state}-Senate-Class${term.class}` : 
-                        `${term.state}-District-${term.district || 'AL'}`;
+                    let seatKey;
                     
-                    // Clean party data for historical accuracy
-                    let cleanedParty = term.party || 'Unknown';
-                    const startYear = new Date(term.start).getFullYear();
-                    if (term.party === 'Republican' && startYear < 1854) {
-                        cleanedParty = 'Democratic Republican';
+                    // Handle different term types
+                    if (chamber === 'sen') {
+                        seatKey = `${term.state}-Senate-Class${term.class}`;
+                    } else if (chamber === 'rep') {
+                        seatKey = `${term.state}-District-${term.district || 'AL'}`;
+                    } else if (chamber === 'prez') {
+                        seatKey = 'US-President';
+                    } else if (chamber === 'viceprez') {
+                        seatKey = 'US-VicePresident';
+                    } else {
+                        // Handle other term types
+                        seatKey = `${term.state || 'US'}-${chamber}`;
                     }
+                    
+                    // Clean party data using utility function
+                    const cleanedParty = Utils.cleanPartyData(term.party, new Date(term.start).getFullYear());
                     
                     allPeopleTerms[personId].allTerms.push({
                         start: new Date(term.start),
@@ -1366,9 +1761,29 @@
                     }
                     
                     if (!chamberData[chamber][seatKey]) {
+                        let seatDescription;
+                        let stateValue;
+                        
+                        if (chamber === 'sen') {
+                            seatDescription = `Senate Class ${term.class}`;
+                            stateValue = term.state;
+                        } else if (chamber === 'rep') {
+                            seatDescription = `District ${term.district || 'At-Large'}`;
+                            stateValue = term.state;
+                        } else if (chamber === 'prez') {
+                            seatDescription = 'President';
+                            stateValue = 'US';
+                        } else if (chamber === 'viceprez') {
+                            seatDescription = 'Vice President';
+                            stateValue = 'US';
+                        } else {
+                            seatDescription = chamber;
+                            stateValue = term.state || 'US';
+                        }
+                        
                         chamberData[chamber][seatKey] = {
-                            state: term.state,
-                            seat: chamber === 'sen' ? `Senate Class ${term.class}` : `District ${term.district || 'At-Large'}`,
+                            state: stateValue,
+                            seat: seatDescription,
                             chamber: chamber,
                             people: {}
                         };
@@ -1466,7 +1881,8 @@
             let globalMinDate = new Date();
             let globalMaxDate = new Date(1900, 0, 1);
             
-            ['sen', 'rep'].forEach(chamber => {
+            // Include all chambers in date range calculation
+            ['prez', 'viceprez', 'sen', 'rep'].forEach(chamber => {
                 if (chamberData[chamber]) {
                     Object.values(chamberData[chamber]).forEach(seat => {
                         Object.values(seat.people).forEach(person => {
@@ -1498,8 +1914,32 @@
             const sortByPartyRepresentation = stateOrderingValue === 'party-representation';
             const partyRepresentationType = document.getElementById('partyRepresentationSort')?.value || 'democrat';
             const showTerritories = document.getElementById('showTerritories').checked;
+
+            // First, render Presidential and Vice Presidential timelines at the top
+            if (chamberData['prez'] && Object.keys(chamberData['prez']).length > 0) {
+                // Add Presidential section header
+                d3.select('#timeline')
+                    .append('h2')
+                    .style('color', '#2c3e50')
+                    .style('border-bottom', '2px solid #8e44ad')
+                    .style('padding-bottom', '10px')
+                    .style('margin-top', '20px')
+                    .text('Executive Branch');
+                
+                // Render Presidential timeline
+                Object.values(chamberData['prez']).forEach(seat => {
+                    createSeatTimeline(seat, globalMinDate, globalMaxDate);
+                });
+            }
             
-            // Sort all seats by state (grouped by state, Senate first then House)
+            if (chamberData['viceprez'] && Object.keys(chamberData['viceprez']).length > 0) {
+                // Render Vice Presidential timeline (no separate header since it's under Executive Branch)
+                Object.values(chamberData['viceprez']).forEach(seat => {
+                    createSeatTimeline(seat, globalMinDate, globalMaxDate);
+                });
+            }
+            
+            // Sort all Congressional seats by state (grouped by state, Senate first then House)
             const sortedSeats = sortSeatsByState(chamberData, sortByStatehood, sortByParty, sortByGender, sortByAgeStart, sortByAgeRetire, sortByPartyRepresentation, partyRepresentationType);
             
             // Group seats by state for rendering with state headers
@@ -1545,7 +1985,7 @@
 
         function processAndVisualizeCollapsed(data) {
             // Store data for view mode switching
-            currentData = data;
+            AppState.currentData = data;
             
             // Clear previous timeline
             document.getElementById('timeline').innerHTML = '';
@@ -1557,19 +1997,51 @@
             
             data.forEach(person => {
                 person.terms.forEach(term => {
-                    const chamber = term.type; // 'sen' or 'rep'
-                    const seatKey = chamber === 'sen' ? 
-                        `${term.state}-Senate-Class${term.class}` : 
-                        `${term.state}-District-${term.district || 'AL'}`;
+                    const chamber = term.type;
+                    let seatKey;
+                    
+                    // Handle different term types
+                    if (chamber === 'sen') {
+                        seatKey = `${term.state}-Senate-Class${term.class}`;
+                    } else if (chamber === 'rep') {
+                        seatKey = `${term.state}-District-${term.district || 'AL'}`;
+                    } else if (chamber === 'prez') {
+                        seatKey = 'US-President';
+                    } else if (chamber === 'viceprez') {
+                        seatKey = 'US-VicePresident';
+                    } else {
+                        // Handle other term types
+                        seatKey = `${term.state || 'US'}-${chamber}`;
+                    }
                     
                     if (!chamberData[chamber]) {
                         chamberData[chamber] = {};
                     }
                     
                     if (!chamberData[chamber][seatKey]) {
+                        let seatDescription;
+                        let stateValue;
+                        
+                        if (chamber === 'sen') {
+                            seatDescription = `Senate Class ${term.class}`;
+                            stateValue = term.state;
+                        } else if (chamber === 'rep') {
+                            seatDescription = `District ${term.district || 'At-Large'}`;
+                            stateValue = term.state;
+                        } else if (chamber === 'prez') {
+                            seatDescription = 'President';
+                            stateValue = 'US';
+                        } else if (chamber === 'viceprez') {
+                            seatDescription = 'Vice President';
+                            stateValue = 'US';
+                        } else {
+                            seatDescription = chamber;
+                            stateValue = term.state || 'US';
+                        }
+                        
                         chamberData[chamber][seatKey] = {
-                            state: term.state,
-                            seat: chamber === 'sen' ? `Senate Class ${term.class}` : `District ${term.district || 'At-Large'}`,
+                            state: stateValue,
+                            seat: seatDescription,
                             chamber: chamber,
                             terms: [],
                             people: {} // Add people structure for gender calculation
@@ -1686,8 +2158,32 @@
             const sortByPartyRepresentation = stateOrderingValue === 'party-representation';
             const partyRepresentationType = document.getElementById('partyRepresentationSort')?.value || 'democrat';
             const showTerritories = document.getElementById('showTerritories').checked;
+
+            // First, render Presidential and Vice Presidential timelines at the top
+            if (chamberData['prez'] && Object.keys(chamberData['prez']).length > 0) {
+                // Add Presidential section header
+                d3.select('#timeline')
+                    .append('h2')
+                    .style('color', '#2c3e50')
+                    .style('border-bottom', '2px solid #8e44ad')
+                    .style('padding-bottom', '10px')
+                    .style('margin-top', '20px')
+                    .text('Executive Branch');
+                
+                // Render Presidential timeline
+                Object.values(chamberData['prez']).forEach(seat => {
+                    createCollapsedSeatTimeline(seat, globalMinDate, globalMaxDate);
+                });
+            }
             
-            // Sort all seats by state (grouped by state, Senate first then House)
+            if (chamberData['viceprez'] && Object.keys(chamberData['viceprez']).length > 0) {
+                // Render Vice Presidential timeline (no separate header since it's under Executive Branch)
+                Object.values(chamberData['viceprez']).forEach(seat => {
+                    createCollapsedSeatTimeline(seat, globalMinDate, globalMaxDate);
+                });
+            }
+            
+            // Sort all Congressional seats by state (grouped by state, Senate first then House)
             const sortedSeats = sortSeatsByState(chamberData, sortByStatehood, sortByParty, sortByGender, sortByAgeStart, sortByAgeRetire, sortByPartyRepresentation, partyRepresentationType);
             
             if (sortByGender || sortByAgeStart || sortByAgeRetire || sortByPartyRepresentation) {
@@ -1733,7 +2229,7 @@
 
         function processAndVisualizeStacked(data) {
             // Store data for view mode switching
-            currentData = data;
+            AppState.currentData = data;
             
             // Clear previous timeline
             document.getElementById('timeline').innerHTML = '';
@@ -1742,9 +2238,37 @@
             
             // Group all terms by state (no chamber separation, no seat separation)
             const stateData = {};
+            const executiveBranchData = {
+                state: 'Executive Branch',
+                terms: []
+            };
             
             data.forEach(person => {
                 person.terms.forEach(term => {
+                    // Handle presidential and vice presidential terms separately
+                    if (term.type === 'prez' || term.type === 'viceprez') {
+                        // Clean party data for historical accuracy
+                        let cleanedParty = term.party || 'Unknown';
+                        const startYear = new Date(term.start).getFullYear();
+                        if (term.party === 'Republican' && startYear < 1854) {
+                            cleanedParty = 'Democratic Republican';
+                        }
+                        
+                        executiveBranchData.terms.push({
+                            start: new Date(term.start),
+                            end: new Date(term.end),
+                            party: cleanedParty,
+                            state: 'US',
+                            district: null,
+                            class: null,
+                            chamber: term.type,
+                            personName: `${person.name.first || ''} ${person.name.nickname ? `"${person.name.nickname}"` : ''} ${person.name.middle || ''} ${person.name.last || ''} ${person.name.suffix || ''}`.trim(),
+                            wikipediaUrl: person.id && person.id.wikipedia ? 
+                                `https://en.wikipedia.org/wiki/${encodeURIComponent(person.id.wikipedia).replace(/%20/g, '_')}` : null
+                        });
+                        return; // Skip adding to state data
+                    }
+                    
                     const state = term.state;
                     
                     if (!stateData[state]) {
@@ -1798,9 +2322,17 @@
                 }
             });
 
-            // Get global date range (only from filtered states)
+            // Get global date range (from both executive branch and filtered states)
             let globalMinDate = new Date('2100-01-01');
             let globalMaxDate = new Date('1700-01-01');
+            
+            // Include executive branch terms in global date range
+            if (executiveBranchData.terms.length > 0) {
+                executiveBranchData.terms.forEach(term => {
+                    if (term.start < globalMinDate) globalMinDate = term.start;
+                    if (term.end > globalMaxDate) globalMaxDate = term.end;
+                });
+            }
             
             Object.values(filteredStateData).forEach(state => {
                 state.terms.forEach(term => {
@@ -1817,6 +2349,15 @@
             
             // Calculate maximum seats across all states for opacity calculation
             let maxSeatsAcrossAllStates = 0;
+            
+            // Include executive branch in max seats calculation
+            if (executiveBranchData.terms.length > 0) {
+                const executiveMaxSeats = calculateStateMaxSeats(executiveBranchData);
+                if (executiveMaxSeats > maxSeatsAcrossAllStates) {
+                    maxSeatsAcrossAllStates = executiveMaxSeats;
+                }
+            }
+            
             Object.values(filteredStateData).forEach(state => {
                 const stateMaxSeats = calculateStateMaxSeats(state);
                 if (stateMaxSeats > maxSeatsAcrossAllStates) {
@@ -1826,9 +2367,9 @@
             
             // Sort states (use custom order if available, otherwise use selected sort method)
             let sortedStates;
-            if (customStateOrder && customStateOrder.length > 0) {
+            if (AppState.customStateOrder && AppState.customStateOrder.length > 0) {
                 // Use custom drag-and-drop order, but filter to only include states that exist in current data
-                sortedStates = customStateOrder.filter(stateKey => filteredStateData[stateKey]);
+                sortedStates = AppState.customStateOrder.filter(stateKey => filteredStateData[stateKey]);
                 // Add any new states that weren't in the custom order to the end
                 Object.keys(filteredStateData).forEach(stateKey => {
                     if (!sortedStates.includes(stateKey)) {
@@ -1880,53 +2421,53 @@
             orderControls.append('button')
                 .text('Reset to Alphabetical')
                 .on('click', function() {
-                    customStateOrder = null;
-                    processAndVisualizeStacked(currentData);
+                    AppState.customStateOrder = null;
+                    processAndVisualizeStacked(AppState.currentData);
                 });
             
             orderControls.append('button')
                 .text('Reset to Statehood Date')
                 .on('click', function() {
-                    customStateOrder = null;
+                    AppState.customStateOrder = null;
                     // Temporarily set statehood ordering and re-render
                     document.querySelector('input[name="stateOrdering"][value="statehood"]').checked = true;
-                    processAndVisualizeStacked(currentData);
+                    processAndVisualizeStacked(AppState.currentData);
                 });
             
             orderControls.append('button')
                 .text('Reset to Party Balance')
                 .on('click', function() {
-                    customStateOrder = null;
+                    AppState.customStateOrder = null;
                     // Temporarily set party ordering and re-render
                     document.querySelector('input[name="stateOrdering"][value="party"]').checked = true;
-                    processAndVisualizeStacked(currentData);
+                    processAndVisualizeStacked(AppState.currentData);
                 });
             
             orderControls.append('button')
                 .text('Reset to Gender Ratio')
                 .on('click', function() {
-                    customStateOrder = null;
+                    AppState.customStateOrder = null;
                     // Temporarily set gender ordering and re-render
                     document.querySelector('input[name="stateOrdering"][value="gender"]').checked = true;
-                    processAndVisualizeStacked(currentData);
+                    processAndVisualizeStacked(AppState.currentData);
                 });
             
             orderControls.append('button')
                 .text('Reset to Starting Age')
                 .on('click', function() {
-                    customStateOrder = null;
+                    AppState.customStateOrder = null;
                     // Temporarily set age start ordering and re-render
                     document.querySelector('input[name="stateOrdering"][value="ageStart"]').checked = true;
-                    processAndVisualizeStacked(currentData);
+                    processAndVisualizeStacked(AppState.currentData);
                 });
             
             orderControls.append('button')
                 .text('Reset to Retirement Age')
                 .on('click', function() {
-                    customStateOrder = null;
+                    AppState.customStateOrder = null;
                     // Temporarily set age retire ordering and re-render
                     document.querySelector('input[name="stateOrdering"][value="ageRetire"]').checked = true;
-                    processAndVisualizeStacked(currentData);
+                    processAndVisualizeStacked(AppState.currentData);
                 });
             
             orderControls.append('span')
@@ -1939,6 +2480,11 @@
             const statesContainer = d3.select('#timeline').append('div')
                 .attr('class', 'stacked-states-container');
 
+            // First, render Executive Branch timeline at the top if it has data
+            if (executiveBranchData.terms.length > 0) {
+                createStackedStateTimeline(executiveBranchData, globalMinDate, globalMaxDate, maxSeatsAcrossAllStates, -1);
+            }
+
             // Render stacked timelines for each state
             sortedStates.forEach((stateKey, index) => {
                 createStackedStateTimeline(filteredStateData[stateKey], globalMinDate, globalMaxDate, maxSeatsAcrossAllStates, index);
@@ -1947,7 +2493,7 @@
 
         function processAndVisualizePartyGraph(data) {
             // Store data for view mode switching
-            currentData = data;
+            AppState.currentData = data;
             
             // Clear previous timeline
             document.getElementById('timeline').innerHTML = '';
@@ -1966,6 +2512,11 @@
                 }
                 
                 person.terms.forEach(term => {
+                    // Skip presidential and vice presidential terms since they're not state-based
+                    if (term.type === 'prez' || term.type === 'viceprez') {
+                        return;
+                    }
+                    
                     const state = term.state;
                     const chamber = term.type; // 'sen' for Senate, 'rep' for House
                     const startDate = new Date(term.start);
@@ -2278,187 +2829,12 @@
         }
 
         function normalizePartyForGraph(party) {
-            if (!party) return 'unknown';
-            
-            // Clean up the party name for matching
-            const partyLower = party.toLowerCase().replace(/\s+/g, '').replace(/-/g, '');
-            
-            // Check for Democratic Republican first (before general democrat check)
-            if (partyLower.includes('democraticrepublican') || partyLower === 'democraticrepublican') {
-                return 'democraticrepublican';
-            }
-            
-            // Democrat variations (excluding Democratic Republican)
-            if (partyLower.includes('democrat') && !partyLower.includes('republican') && !partyLower.includes('adams')) {
-                return 'democrat';
-            }
-            
-            // Republican variations (excluding Democratic Republican)
-            if (partyLower.includes('republican') && !partyLower.includes('democrat')) {
-                return 'republican';
-            }
-            
-            // Handle specific party variations that need exact matching
-            switch(partyLower) {
-                case 'antijacksonian':
-                case 'antijackson':
-                    return 'antijacksonian';
-                case 'adams':
-                case 'adamsdemocrat':
-                    return 'adams';
-                case 'jackson':
-                case 'jacksonian':
-                    return 'jackson';
-                case 'jacksonrepublican':
-                case 'jacksonianrepublican':
-                    return 'jacksonrepublican';
-                case 'indrepublicandemocrat':
-                    return 'indrepublicandemocrat';
-                case 'farmerlabor':
-                    return 'farmerlabor';
-                case 'democraticrepublican':
-                    return 'democraticrepublican';
-                case 'proadministration':
-                    return 'proadministration';
-                case 'antiadministration':
-                    return 'antiadministration';
-                case 'antilecomptondemocrat':
-                    return 'antilecomptondemocrat';
-                case 'democratliberal':
-                    return 'democratliberal';
-                case 'progressiverepublican':
-                    return 'progressiverepublican';
-                case 'conservativerepublican':
-                case 'republicanconservative':
-                    return 'conservativerepublican';
-                case 'nationalgreenbacker':
-                    return 'nationalgreenbacker';
-                case 'constitutionalunionist':
-                    return 'constitutionalunionist';
-                case 'unconditionalunionist':
-                    return 'unconditionalunionist';
-                case 'democraticandunionlabor':
-                    return 'democraticandunionlabor';
-                default:
-                    // Return the cleaned party name for everything else
-                    return partyLower;
-            }
+            return PartyManager.normalizeForGraph(party);
         }
 
         function getPartyColor(party) {
-            // Use the existing color scheme from the CSS
-            if (party === 'democrat') return 'blue';
-            if (party === 'republican') return 'red';
-            
-            // For other parties, use the exact color mapping from CSS
-            switch(party) {
-                // Republican variations
-                case 'crawfordrepublican': return 'red';
-                case 'liberalrepublican':
-                case 'socialist':
-                case 'americanlabor':
-                case 'populardemocrat':
-                case 'readjuster':
-                case 'readjusterdemocrat': return 'rgb(136, 0, 0)';
-                case 'silverrepublican':
-                case 'indrepublican': return 'rgb(255, 174, 174)';
-                
-                // Democrat variations
-                case 'inddemocrat':
-                case 'independentdemocrat': return 'rgb(188, 188, 255)';
-                case 'nullifier':
-                case 'statesrights':
-                case 'newprogressive': return 'rgb(0, 0, 163)';
-                
-                // Independent/Unknown
-                case 'independent':
-                case 'nonpartisan':
-                case 'al':
-                case 'unknown':
-                case 'blankparty': return 'rgb(143, 143, 143)';
-                
-                // Whig and related
-                case 'whig':
-                case 'constitutionalunionist':
-                case 'libertarian': return 'rgb(255, 230, 0)';
-                case 'antimasonic':
-                case 'antimason':
-                case 'indwhig': return 'rgb(255, 246, 164)';
-                
-                // Administration parties
-                case 'proadministration': return 'rgb(232, 232, 232)';
-                case 'antiadministration': return 'rgb(43, 43, 43)';
-                
-                // Federalist
-                case 'federalist':
-                case 'coalitionist': return 'rgb(195, 0, 255)';
-                
-                // Democratic-Republican
-                case 'democraticrepublican': return 'rgb(0, 150, 0)';
-                
-                // Adams and Anti-Jackson parties (Orange)
-                case 'adams':
-                case 'adamsdemocrat':
-                case 'antijacksonian':
-                case 'antijackson':
-                case 'indrepublicandemocrat': return 'rgb(255, 136, 0)';
-                
-                // Jackson parties (Light Blue)
-                case 'jackson':
-                case 'jacksonian':
-                case 'jacksonrepublican':
-                case 'jacksonianrepublican': return 'rgb(115, 136, 255)';
-                
-                // Liberty and related
-                case 'liberty':
-                case 'antilecomptondemocrat': return 'rgb(34, 214, 190)';
-                case 'democratliberal':
-                case 'liberal': return 'rgb(160, 255, 242)';
-                
-                // Free Soil
-                case 'freesoil': return 'greenyellow';
-                
-                // Union parties
-                case 'union':
-                case 'unionist':
-                case 'unconditionalunionist':
-                case 'uniondemocrat': return 'rgb(255, 136, 255)';
-                
-                // Populist and labor
-                case 'populist':
-                case 'unionlabor':
-                case 'democraticandunionlabor': return 'rgb(144, 205, 255)';
-                
-                // American
-                case 'american': return 'rgb(240, 42, 240)';
-                
-                // Farmer-Labor
-                case 'farmerlabor': return 'rgb(42, 240, 174)';
-                
-                // Progressive
-                case 'progressive':
-                case 'progressiverepublican': return 'rgb(0, 90, 0)';
-                
-                // Silver parties
-                case 'silver':
-                case 'freesilver': return 'rgb(82, 82, 82)';
-                
-                // Conservative
-                case 'conservative':
-                case 'conservativerepublican':
-                case 'republicanconservative': return 'rgb(230, 84, 0)';
-                
-                // Law and Order
-                case 'lawandorder': return 'rgb(23, 153, 136)';
-                
-                // National Greenbacker
-                case 'nationalgreenbacker': return 'green';
-                
-                // Prohibitionist
-                case 'prohibitionist': return 'rgb(196, 196, 21)';
-                
-                default: return '#95a5a6'; // Default gray for unknown parties
-            }
+            const normalizedParty = PartyManager.normalizeForGraph(party);
+            return PartyManager.getColor(normalizedParty);
         }
 
         function createPartyGraphTimeline(state, yearData, globalMinDate, globalMaxDate, allYears) {
@@ -2525,15 +2901,26 @@
                 const barWidth = (timelineWidth - margin.right) / allYears.length;
                 const x = timeScale(yearDate) - barWidth / 2;
                 
-                // Sort parties to ensure consistent stacking order: Democrat, Republican, then others
+                // Sort parties based on the toggle setting
                 const parties = Object.keys(data);
-                const sortedParties = parties.sort((a, b) => {
-                    if (a === 'democrat') return -1;
-                    if (b === 'democrat') return 1;
-                    if (a === 'republican') return -1;
-                    if (b === 'republican') return 1;
-                    return a.localeCompare(b);
-                });
+                const sortByPercentage = document.getElementById('sortPartiesByPercentage')?.checked || false;
+                
+                let sortedParties;
+                if (sortByPercentage) {
+                    // Sort by percentage (highest first)
+                    sortedParties = parties.sort((a, b) => {
+                        return data[b] - data[a]; // Sort descending by percentage
+                    });
+                } else {
+                    // Default order: Democrat, Republican, then others alphabetically
+                    sortedParties = parties.sort((a, b) => {
+                        if (a === 'democrat') return -1;
+                        if (b === 'democrat') return 1;
+                        if (a === 'republican') return -1;
+                        if (b === 'republican') return 1;
+                        return a.localeCompare(b);
+                    });
+                }
                 
                 // Create stacked bars from bottom to top
                 let currentY = timelineHeight - margin.bottom;
@@ -2680,15 +3067,26 @@
                 const barWidth = (timelineWidth - margin.right) / allYears.length;
                 const x = timeScale(yearDate) - barWidth / 2;
                 
-                // Sort parties to ensure consistent stacking order: Democrat, Republican, then others
+                // Sort parties based on the toggle setting
                 const parties = Object.keys(data);
-                const sortedParties = parties.sort((a, b) => {
-                    if (a === 'democrat') return -1;
-                    if (b === 'democrat') return 1;
-                    if (a === 'republican') return -1;
-                    if (b === 'republican') return 1;
-                    return a.localeCompare(b);
-                });
+                const sortByPercentage = document.getElementById('sortPartiesByPercentage')?.checked || false;
+                
+                let sortedParties;
+                if (sortByPercentage) {
+                    // Sort by percentage (highest first)
+                    sortedParties = parties.sort((a, b) => {
+                        return data[b] - data[a]; // Sort descending by percentage
+                    });
+                } else {
+                    // Default order: Democrat, Republican, then others alphabetically
+                    sortedParties = parties.sort((a, b) => {
+                        if (a === 'democrat') return -1;
+                        if (b === 'democrat') return 1;
+                        if (a === 'republican') return -1;
+                        if (b === 'republican') return 1;
+                        return a.localeCompare(b);
+                    });
+                }
                 
                 // Create stacked bars from bottom to top
                 let currentY = timelineHeight - margin.bottom;
@@ -3243,8 +3641,8 @@
                     const displayName = d.displayName || d.name;
                     
                     // Check if we already know this image status from cache
-                    const isKnownExisting = imageCache.existing.has(bioguide);
-                    const isKnownMissing = imageCache.missing.has(bioguide);
+                    const isKnownExisting = AppState.imageCache.existing.has(bioguide);
+                    const isKnownMissing = AppState.imageCache.missing.has(bioguide);
                     
                     let imageUrl, onErrorHandler, onLoadHandler;
                     
@@ -3261,8 +3659,8 @@
                     } else {
                         // Unknown status, try real image with fallback
                         imageUrl = `images/${bioguide}.jpg`;
-                        onErrorHandler = `this.src='images/placeholder_square.png'; imageCache.missing.add('${bioguide}'); saveMissingImageToStorage('${bioguide}');`;
-                        onLoadHandler = `imageCache.existing.add('${bioguide}');`;
+                        onErrorHandler = `this.src='images/placeholder_square.png'; AppState.imageCache.missing.add('${bioguide}'); ImageCache.saveToStorage('${bioguide}');`;
+                        onLoadHandler = `AppState.imageCache.existing.add('${bioguide}');`;
                     }
                     
                     // Create portrait image element with appropriate handlers
@@ -4245,8 +4643,8 @@
                 .style('opacity', 0);
 
             // Check if we already know this image status from cache
-            const isKnownExisting = imageCache.existing.has(bioguide);
-            const isKnownMissing = imageCache.missing.has(bioguide);
+            const isKnownExisting = AppState.imageCache.existing.has(bioguide);
+            const isKnownMissing = AppState.imageCache.missing.has(bioguide);
             
             let imageUrl, onErrorHandler, onLoadHandler;
             
@@ -4263,8 +4661,8 @@
             } else {
                 // Unknown status, try real image with fallback
                 imageUrl = `images/${bioguide}.jpg`;
-                onErrorHandler = `this.src='images/placeholder_square.png'; imageCache.missing.add('${bioguide}'); saveMissingImageToStorage('${bioguide}');`;
-                onLoadHandler = `imageCache.existing.add('${bioguide}');`;
+                onErrorHandler = `this.src='images/placeholder_square.png'; AppState.imageCache.missing.add('${bioguide}'); ImageCache.saveToStorage('${bioguide}');`;
+                onLoadHandler = `AppState.imageCache.existing.add('${bioguide}');`;
             }
 
             const tooltipContent = `
@@ -4303,9 +4701,10 @@
             }
         }
 
-        // Show sample data on load
+        // Initialize event handlers and load congressional data on page load
         window.addEventListener('load', function() {
-            loadSampleData();
+            EventHandlers.init();
+            loadCongressionalData();
         });
     </script>
 </body>
