@@ -94,16 +94,19 @@
         <h3>Instructions:</h3>
         <ol>
             <li>Load the congressional data</li>
-            <li>The tool will check which portraits are already in your images/ folder</li>
-            <li>Browse portraits that are available online but not yet downloaded</li>
+            <li>The tool will check the "congressional-timeline-missing-images" localStorage array</li>
+            <li>All images NOT in that array are assumed to already exist in your images/ folder</li>
+            <li>Browse portraits that are missing and available online</li>
             <li>Click "Download" on any portrait you want to save locally</li>
+            <li>Successfully downloaded images are automatically removed from the missing list</li>
             <li>Downloaded images will be saved to your Downloads folder</li>
             <li>Manually move them from Downloads to the <code>images/</code> folder in your project</li>
         </ol>
         
         <button onclick="loadCongressionalData()" id="loadBtn">Load Congressional Data</button>
-        <button onclick="downloadAll()" id="downloadAllBtn" disabled>Download All Available (⚠️ Bulk)</button>
+        <button onclick="downloadAll()" id="downloadAllBtn" disabled>Download All Missing (⚠️ Bulk)</button>
         <button onclick="clearFailedCache()" id="clearCacheBtn" style="background: #dc3545; margin-left: 10px;">Clear Failed Cache</button>
+        <button onclick="resetMissingImagesArray()" id="resetMissingBtn" style="background: #ffc107; color: #000; margin-left: 10px;">Reset Missing Array</button>
         
         <div id="stats" class="stats" style="display: none;">
             <strong>Statistics:</strong>
@@ -118,8 +121,10 @@
         let congressionalData = [];
         let uniquePeople = new Map();
         let localImages = new Set(); // Track which images are already local
+        let missingImages = new Set(); // Track which images are missing (from localStorage)
         let failedImages = new Set(); // Track which images failed to load
         const FAILED_CACHE_KEY = 'congressional-portraits-failed-cache';
+        const MISSING_IMAGES_KEY = 'congressional-timeline-missing-images';
 
         // Load failed cache from localStorage
         function loadFailedCache() {
@@ -133,6 +138,35 @@
             } catch (error) {
                 console.warn('Failed to load cache:', error);
                 failedImages = new Set();
+            }
+        }
+
+        // Load missing images from localStorage
+        function loadMissingImages() {
+            try {
+                const cached = localStorage.getItem(MISSING_IMAGES_KEY);
+                if (cached) {
+                    const missingArray = JSON.parse(cached);
+                    missingImages = new Set(missingArray);
+                    console.log(`Loaded ${missingImages.size} missing portraits from localStorage`);
+                } else {
+                    console.log('No missing images array found in localStorage');
+                    missingImages = new Set();
+                }
+            } catch (error) {
+                console.warn('Failed to load missing images:', error);
+                missingImages = new Set();
+            }
+        }
+
+        // Save missing images to localStorage
+        function saveMissingImages() {
+            try {
+                const missingArray = Array.from(missingImages);
+                localStorage.setItem(MISSING_IMAGES_KEY, JSON.stringify(missingArray));
+                console.log(`Saved ${missingArray.length} missing images to localStorage`);
+            } catch (error) {
+                console.warn('Failed to save missing images:', error);
             }
         }
 
@@ -153,7 +187,46 @@
             displayMessage('✅ Failed portraits cache cleared', 'success');
         }
 
+        // Reset missing images array based on actual file checking
+        async function resetMissingImagesArray() {
+            if (!confirm('This will rebuild the missing images array by checking all files. Continue?')) {
+                return;
+            }
+            
+            // Clear and rebuild based on actual file existence
+            missingImages.clear();
+            localImages.clear();
+            
+            const checkPromises = Array.from(uniquePeople.keys()).map(async (bioguide) => {
+                return new Promise((resolve) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        localImages.add(bioguide);
+                        resolve();
+                    };
+                    img.onerror = () => {
+                        missingImages.add(bioguide);
+                        resolve();
+                    };
+                    img.src = `./images/${bioguide}.jpg`;
+                });
+            });
+            
+            await Promise.all(checkPromises);
+            
+            // Save the corrected missing array
+            saveMissingImages();
+            
+            displayMessage(`✅ Reset complete! Found ${localImages.size} local images, ${missingImages.size} missing images`, 'success');
+            updateStats();
+            showPortraitsSample();
+        }
+
         async function checkLocalImages() {
+            // Load missing images from localStorage first
+            loadMissingImages();
+            
+            // Actually check which images exist in the local images folder
             localImages.clear();
             const checkPromises = Array.from(uniquePeople.keys()).map(async (bioguide) => {
                 return new Promise((resolve) => {
@@ -168,7 +241,35 @@
             });
             
             await Promise.all(checkPromises);
-            displayMessage(`✅ Found ${localImages.size} images already in local images/ folder`, 'success');
+            
+            // Now update the missing images array to reflect reality
+            // Remove any IDs from missing array that we found locally
+            let removedFromMissing = 0;
+            localImages.forEach(bioguide => {
+                if (missingImages.has(bioguide)) {
+                    missingImages.delete(bioguide);
+                    removedFromMissing++;
+                }
+            });
+            
+            // Add any IDs to missing array that we didn't find locally
+            let addedToMissing = 0;
+            Array.from(uniquePeople.keys()).forEach(bioguide => {
+                if (!localImages.has(bioguide) && !missingImages.has(bioguide)) {
+                    missingImages.add(bioguide);
+                    addedToMissing++;
+                }
+            });
+            
+            // Save the updated missing array
+            if (removedFromMissing > 0 || addedToMissing > 0) {
+                saveMissingImages();
+                console.log(`Updated missing array: removed ${removedFromMissing}, added ${addedToMissing}`);
+            }
+            
+            const missingCount = missingImages.size;
+            const localCount = localImages.size;
+            displayMessage(`✅ Found ${localCount} images in local folder, ${missingCount} images missing (updated missing list)`, 'success');
         }
 
         async function loadCongressionalData() {
@@ -233,9 +334,10 @@
             const statsDiv = document.getElementById('stats');
             const statsText = document.getElementById('statsText');
             const localCount = localImages.size;
+            const missingCount = missingImages.size;
             const failedCount = failedImages.size;
-            const availableCount = uniquePeople.size - localCount - failedCount;
-            statsText.textContent = `${uniquePeople.size} unique people loaded (${localCount} local, ${failedCount} previously failed, ${availableCount} available to download)`;
+            const availableCount = missingCount - failedCount;
+            statsText.textContent = `${uniquePeople.size} unique people loaded (${localCount} local, ${missingCount} missing, ${failedCount} previously failed, ${availableCount} available to download)`;
             statsDiv.style.display = 'block';
         }
 
@@ -243,20 +345,25 @@
             const portraitsDiv = document.getElementById('portraits');
             portraitsDiv.innerHTML = '';
             
-            // Show first 50 people as a sample
-            const samplePeople = Array.from(uniquePeople.values()).slice(0, 50);
+            // Prioritize showing missing images first, then show some local ones
+            const allPeople = Array.from(uniquePeople.values());
+            const missingPeople = allPeople.filter(person => missingImages.has(person.bioguide));
+            const localPeople = allPeople.filter(person => !missingImages.has(person.bioguide));
+            
+            // Show up to 30 missing + 20 local for a good mix
+            const samplePeople = [...missingPeople.slice(0, 30), ...localPeople.slice(0, 20)];
             
             samplePeople.forEach(person => {
                 const card = createPortraitCard(person);
                 portraitsDiv.appendChild(card);
             });
             
-            if (uniquePeople.size > 50) {
+            if (allPeople.length > samplePeople.length) {
                 const moreDiv = document.createElement('div');
                 moreDiv.style.gridColumn = '1 / -1';
                 moreDiv.style.textAlign = 'center';
                 moreDiv.style.padding = '20px';
-                moreDiv.innerHTML = `<em>Showing first 50 of ${uniquePeople.size} people. Use "Download All" or implement pagination for more.</em>`;
+                moreDiv.innerHTML = `<em>Showing ${samplePeople.length} of ${allPeople.length} people (prioritizing missing images). Use "Download All" for bulk operations.</em>`;
                 portraitsDiv.appendChild(moreDiv);
             }
         }
@@ -268,19 +375,28 @@
             const bioguide = person.bioguide;
             const imageUrl = `https://bioguide.congress.gov/photo/${bioguide}.jpg`;
             const isLocal = localImages.has(bioguide);
+            const isMissing = missingImages.has(bioguide);
             const hasFailed = failedImages.has(bioguide);
             
             let statusElement = '';
+            let imageSource = '';
+            
             if (isLocal) {
                 statusElement = '<div style="color: #28a745; font-size: 12px; margin: 5px 0;">✅ Already Local</div>';
-            } else if (hasFailed) {
+                imageSource = `./images/${bioguide}.jpg`; // Use local image
+            } else if (isMissing && hasFailed) {
                 statusElement = '<div style="color: #dc3545; font-size: 12px; margin: 5px 0;">❌ Previously Failed</div>';
-            } else {
+                imageSource = imageUrl; // Use remote URL to show what it would look like
+            } else if (isMissing) {
                 statusElement = `<button class="download-btn" onclick="downloadPortrait('${bioguide}', '${person.name.replace(/'/g, "\\'")}')">Download</button>`;
+                imageSource = imageUrl; // Use remote URL
+            } else {
+                statusElement = '<div style="color: #999; font-size: 12px; margin: 5px 0;">Not in missing list</div>';
+                imageSource = `./images/${bioguide}.jpg`; // Should be local
             }
             
             card.innerHTML = `
-                <img src="${imageUrl}" 
+                <img src="${imageSource}" 
                      alt="${person.name}" 
                      class="portrait-img"
                      onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"
@@ -298,6 +414,12 @@
             // Check if already local
             if (localImages.has(bioguide)) {
                 displayMessage(`⚠️ ${name} (${bioguide}) is already in your local images folder`, 'info');
+                return;
+            }
+            
+            // Check if not in missing list
+            if (!missingImages.has(bioguide)) {
+                displayMessage(`⚠️ ${name} (${bioguide}) is not in the missing images list`, 'info');
                 return;
             }
             
@@ -324,7 +446,17 @@
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
                 
-                displayMessage(`✅ Downloaded portrait for ${name} (${bioguide})`, 'success');
+                // Remove from missing images list since we successfully downloaded it
+                missingImages.delete(bioguide);
+                saveMissingImages();
+                
+                // Add to local images
+                localImages.add(bioguide);
+                
+                displayMessage(`✅ Downloaded portrait for ${name} (${bioguide}) and removed from missing list`, 'success');
+                
+                // Update stats to reflect the change
+                updateStats();
                 
             } catch (error) {
                 // Add to failed cache
@@ -338,13 +470,14 @@
 
         async function downloadAll() {
             const availableToDownload = Array.from(uniquePeople.values()).filter(person => 
-                !localImages.has(person.bioguide) && !failedImages.has(person.bioguide)
+                missingImages.has(person.bioguide) && !failedImages.has(person.bioguide)
             );
-            const localCount = uniquePeople.size - availableToDownload.length - failedImages.size;
+            const localCount = localImages.size;
+            const missingCount = missingImages.size;
             const failedCount = failedImages.size;
             
             if (availableToDownload.length === 0) {
-                displayMessage('✅ All available portraits are either downloaded or previously failed!', 'success');
+                displayMessage('✅ All missing portraits are either not available or previously failed!', 'success');
                 return;
             }
             
