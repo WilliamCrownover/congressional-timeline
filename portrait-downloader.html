@@ -123,8 +123,214 @@
         let localImages = new Set(); // Track which images are already local
         let missingImages = new Set(); // Track which images are missing (from localStorage)
         let failedImages = new Set(); // Track which images failed to load
+        let attemptHistory = new Map(); // Track per-person source-attempt results for UI
         const FAILED_CACHE_KEY = 'congressional-portraits-failed-cache';
         const MISSING_IMAGES_KEY = 'congressional-timeline-missing-images';
+
+        function getPortraitId(person) {
+            if (person.id?.bioguide) return person.id.bioguide;
+            if (person.id?.govtrack) return `gt_${person.id.govtrack}`;
+            if (person.id?.wikidata) return `wd_${person.id.wikidata}`;
+            if (person.id?.wikipedia) {
+                const normalizedTitle = person.id.wikipedia
+                    .replace(/\s+/g, '_')
+                    .replace(/[^a-zA-Z0-9_]/g, '');
+                return `wp_${normalizedTitle}`;
+            }
+
+            const fallbackName = [person.name?.first, person.name?.last]
+                .filter(Boolean)
+                .join('_')
+                .replace(/\s+/g, '_')
+                .replace(/[^a-zA-Z0-9_]/g, '');
+            const fallbackBirthday = person.bio?.birthday || 'unknown';
+            return `name_${fallbackName}_${fallbackBirthday}`;
+        }
+
+        function getFullNameForWikipediaSearch(person) {
+            const first = person.name?.first || '';
+            const middle = person.name?.middle || '';
+            const last = person.name?.last || '';
+            const fullName = [first, middle, last].filter(Boolean).join(' ').trim();
+
+            if (fullName) return fullName;
+            return [first, last].filter(Boolean).join(' ').trim();
+        }
+
+        async function searchWikipediaTopTitle(fullName) {
+            if (!fullName) return null;
+
+            const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srlimit=1&srsearch=${encodeURIComponent(fullName)}&format=json&origin=*`;
+            const response = await fetch(searchUrl, { mode: 'cors' });
+            if (!response.ok) return null;
+
+            const data = await response.json();
+            const firstResult = data.query?.search?.[0];
+            return firstResult?.title || null;
+        }
+
+        async function fetchWikipediaImageUrl(title) {
+            const apiUrl = `https://en.wikipedia.org/w/api.php?action=query&prop=pageimages&piprop=original&titles=${encodeURIComponent(title)}&format=json&origin=*`;
+            const response = await fetch(apiUrl, { mode: 'cors' });
+            if (!response.ok) return null;
+            const data = await response.json();
+            const pages = data.query?.pages || {};
+            const firstPage = Object.values(pages)[0];
+            return firstPage?.original?.source || null;
+        }
+
+        async function fetchImageBlob(imageUrl) {
+            try {
+                const response = await fetch(imageUrl, { mode: 'cors' });
+                if (!response.ok) return null;
+                const contentType = response.headers.get('content-type') || '';
+                if (!contentType.startsWith('image/')) return null;
+                const blob = await response.blob();
+                if (!blob || blob.size === 0) return null;
+                return blob;
+            } catch (error) {
+                return null;
+            }
+        }
+
+        async function convertBlobToJpeg(blob) {
+            if (blob.type === 'image/jpeg') {
+                return blob;
+            }
+
+            return new Promise((resolve, reject) => {
+                const objectUrl = URL.createObjectURL(blob);
+                const img = new Image();
+
+                img.onload = () => {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.naturalWidth || img.width;
+                        canvas.height = img.naturalHeight || img.height;
+
+                        const context = canvas.getContext('2d');
+                        if (!context || !canvas.width || !canvas.height) {
+                            throw new Error('Image could not be rasterized');
+                        }
+
+                        // JPEG has no alpha channel, so flatten transparency onto white.
+                        context.fillStyle = '#ffffff';
+                        context.fillRect(0, 0, canvas.width, canvas.height);
+                        context.drawImage(img, 0, 0);
+
+                        canvas.toBlob((jpegBlob) => {
+                            URL.revokeObjectURL(objectUrl);
+
+                            if (!jpegBlob) {
+                                reject(new Error('JPEG conversion failed'));
+                                return;
+                            }
+
+                            resolve(jpegBlob);
+                        }, 'image/jpeg', 0.92);
+                    } catch (error) {
+                        URL.revokeObjectURL(objectUrl);
+                        reject(error);
+                    }
+                };
+
+                img.onerror = () => {
+                    URL.revokeObjectURL(objectUrl);
+                    reject(new Error('Image failed to load for JPEG conversion'));
+                };
+
+                img.src = objectUrl;
+            });
+        }
+
+        function formatAttemptChain(attempts) {
+            if (!attempts || attempts.length === 0) {
+                return 'No sources were attempted';
+            }
+
+            return attempts
+                .map(attempt => `${attempt.source}:${attempt.success ? 'ok' : 'fail'}`)
+                .join(' -> ');
+        }
+
+        async function resolvePortraitImage(person) {
+            const candidates = [];
+            const attempts = [];
+
+            if (person.bioguide) {
+                candidates.push({
+                    source: 'bioguide',
+                    url: `https://bioguide.congress.gov/photo/${person.bioguide}.jpg`
+                });
+            }
+
+            const knownWikipediaTitle = person.rawPerson.id?.wikipedia;
+
+            if (knownWikipediaTitle) {
+                const wikipediaImage = await fetchWikipediaImageUrl(knownWikipediaTitle);
+                if (wikipediaImage) {
+                    candidates.push({
+                        source: `wikipedia(${knownWikipediaTitle})`,
+                        url: wikipediaImage
+                    });
+                } else {
+                    attempts.push({
+                        source: `wikipedia(${knownWikipediaTitle})`,
+                        url: '(known title has no image)',
+                        success: false
+                    });
+                }
+            } else {
+                const wikipediaSearchName = getFullNameForWikipediaSearch(person.rawPerson);
+                const wikipediaTitle = await searchWikipediaTopTitle(wikipediaSearchName);
+
+                if (wikipediaTitle) {
+                    const wikipediaImage = await fetchWikipediaImageUrl(wikipediaTitle);
+                    if (wikipediaImage) {
+                        candidates.push({
+                            source: `wikipedia(${wikipediaTitle})`,
+                            url: wikipediaImage
+                        });
+                    } else {
+                        attempts.push({
+                            source: `wikipedia-search(${wikipediaSearchName})`,
+                            url: `(top result: ${wikipediaTitle}, no image)`,
+                            success: false
+                        });
+                    }
+                } else {
+                    attempts.push({
+                        source: `wikipedia-search(${wikipediaSearchName})`,
+                        url: '(no search results)',
+                        success: false
+                    });
+                }
+            }
+
+            for (const candidate of candidates) {
+                const blob = await fetchImageBlob(candidate.url);
+                attempts.push({
+                    source: candidate.source,
+                    url: candidate.url,
+                    success: !!blob
+                });
+                if (blob) {
+                    return {
+                        blob,
+                        source: candidate.source,
+                        url: candidate.url,
+                        attempts
+                    };
+                }
+            }
+
+            return {
+                blob: null,
+                source: null,
+                url: null,
+                attempts
+            };
+        }
 
         // Load failed cache from localStorage
         function loadFailedCache() {
@@ -197,18 +403,18 @@
             missingImages.clear();
             localImages.clear();
             
-            const checkPromises = Array.from(uniquePeople.keys()).map(async (bioguide) => {
+            const checkPromises = Array.from(uniquePeople.keys()).map(async (portraitId) => {
                 return new Promise((resolve) => {
                     const img = new Image();
                     img.onload = () => {
-                        localImages.add(bioguide);
+                        localImages.add(portraitId);
                         resolve();
                     };
                     img.onerror = () => {
-                        missingImages.add(bioguide);
+                        missingImages.add(portraitId);
                         resolve();
                     };
-                    img.src = `./images/${bioguide}.jpg`;
+                    img.src = `./images/${portraitId}.jpg`;
                 });
             });
             
@@ -228,15 +434,15 @@
             
             // Actually check which images exist in the local images folder
             localImages.clear();
-            const checkPromises = Array.from(uniquePeople.keys()).map(async (bioguide) => {
+            const checkPromises = Array.from(uniquePeople.keys()).map(async (portraitId) => {
                 return new Promise((resolve) => {
                     const img = new Image();
                     img.onload = () => {
-                        localImages.add(bioguide);
+                        localImages.add(portraitId);
                         resolve();
                     };
                     img.onerror = () => resolve();
-                    img.src = `./images/${bioguide}.jpg`;
+                    img.src = `./images/${portraitId}.jpg`;
                 });
             });
             
@@ -245,18 +451,18 @@
             // Now update the missing images array to reflect reality
             // Remove any IDs from missing array that we found locally
             let removedFromMissing = 0;
-            localImages.forEach(bioguide => {
-                if (missingImages.has(bioguide)) {
-                    missingImages.delete(bioguide);
+            localImages.forEach(portraitId => {
+                if (missingImages.has(portraitId)) {
+                    missingImages.delete(portraitId);
                     removedFromMissing++;
                 }
             });
             
             // Add any IDs to missing array that we didn't find locally
             let addedToMissing = 0;
-            Array.from(uniquePeople.keys()).forEach(bioguide => {
-                if (!localImages.has(bioguide) && !missingImages.has(bioguide)) {
-                    missingImages.add(bioguide);
+            Array.from(uniquePeople.keys()).forEach(portraitId => {
+                if (!localImages.has(portraitId) && !missingImages.has(portraitId)) {
+                    missingImages.add(portraitId);
                     addedToMissing++;
                 }
             });
@@ -281,24 +487,30 @@
             loadFailedCache();
             
             try {
-                const response = await fetch('./example-data.json');
-                if (!response.ok) throw new Error('Failed to load data');
-                
-                congressionalData = await response.json();
+                const [congressionalResponse, presidentialResponse] = await Promise.all([
+                    fetch('./example-data.json'),
+                    fetch('./presidential-data.json')
+                ]);
+                if (!congressionalResponse.ok) throw new Error('Failed to load congressional data');
+                if (!presidentialResponse.ok) throw new Error('Failed to load presidential data');
+
+                const congressionalOnly = await congressionalResponse.json();
+                const presidentialData = await presidentialResponse.json();
+                congressionalData = [...congressionalOnly, ...presidentialData];
                 
                 // Extract unique people
                 uniquePeople.clear();
                 congressionalData.forEach(person => {
-                    if (person.id?.bioguide) {
-                        const bioguide = person.id.bioguide;
-                        if (!uniquePeople.has(bioguide)) {
-                            uniquePeople.set(bioguide, {
-                                bioguide: bioguide,
-                                name: formatName(person.name),
-                                firstName: person.name.first,
-                                lastName: person.name.last
-                            });
-                        }
+                    const portraitId = getPortraitId(person);
+                    if (!uniquePeople.has(portraitId)) {
+                        uniquePeople.set(portraitId, {
+                            portraitId,
+                            bioguide: person.id?.bioguide || null,
+                            name: formatName(person.name),
+                            firstName: person.name.first,
+                            lastName: person.name.last,
+                            rawPerson: person
+                        });
                     }
                 });
                 
@@ -347,8 +559,8 @@
             
             // Prioritize showing missing images first, then show some local ones
             const allPeople = Array.from(uniquePeople.values());
-            const missingPeople = allPeople.filter(person => missingImages.has(person.bioguide));
-            const localPeople = allPeople.filter(person => !missingImages.has(person.bioguide));
+            const missingPeople = allPeople.filter(person => missingImages.has(person.portraitId));
+            const localPeople = allPeople.filter(person => !missingImages.has(person.portraitId));
             
             // Show up to 30 missing + 20 local for a good mix
             const samplePeople = [...missingPeople.slice(0, 30), ...localPeople.slice(0, 20)];
@@ -372,27 +584,29 @@
             const card = document.createElement('div');
             card.className = 'portrait-card';
             
+            const portraitId = person.portraitId;
             const bioguide = person.bioguide;
-            const imageUrl = `https://bioguide.congress.gov/photo/${bioguide}.jpg`;
-            const isLocal = localImages.has(bioguide);
-            const isMissing = missingImages.has(bioguide);
-            const hasFailed = failedImages.has(bioguide);
+            const fallbackRemoteImageUrl = bioguide ? `https://bioguide.congress.gov/photo/${bioguide}.jpg` : './images/placeholder_square.png';
+            const isLocal = localImages.has(portraitId);
+            const isMissing = missingImages.has(portraitId);
+            const hasFailed = failedImages.has(portraitId);
+            const attemptChain = attemptHistory.get(portraitId);
             
             let statusElement = '';
             let imageSource = '';
             
             if (isLocal) {
                 statusElement = '<div style="color: #28a745; font-size: 12px; margin: 5px 0;">✅ Already Local</div>';
-                imageSource = `./images/${bioguide}.jpg`; // Use local image
+                imageSource = `./images/${portraitId}.jpg`; // Use local image
             } else if (isMissing && hasFailed) {
                 statusElement = '<div style="color: #dc3545; font-size: 12px; margin: 5px 0;">❌ Previously Failed</div>';
-                imageSource = imageUrl; // Use remote URL to show what it would look like
+                imageSource = fallbackRemoteImageUrl; // Show Bioguide preview when available
             } else if (isMissing) {
-                statusElement = `<button class="download-btn" onclick="downloadPortrait('${bioguide}', '${person.name.replace(/'/g, "\\'")}')">Download</button>`;
-                imageSource = imageUrl; // Use remote URL
+                statusElement = `<button class="download-btn" onclick="downloadPortrait('${portraitId}', '${person.name.replace(/'/g, "\\'")}')">Download</button>`;
+                imageSource = fallbackRemoteImageUrl;
             } else {
                 statusElement = '<div style="color: #999; font-size: 12px; margin: 5px 0;">Not in missing list</div>';
-                imageSource = `./images/${bioguide}.jpg`; // Should be local
+                imageSource = `./images/${portraitId}.jpg`; // Should be local
             }
             
             card.innerHTML = `
@@ -403,74 +617,85 @@
                      onload="this.style.display='block';">
                 <div style="display: none; width: 80px; height: 80px; background: #f0f0f0; border-radius: 50%; margin: 0 auto 10px; line-height: 80px; color: #999;">No Image</div>
                 <div class="portrait-name">${person.name}</div>
-                <div class="portrait-bioguide">${bioguide}</div>
+                <div class="portrait-bioguide">${portraitId}</div>
                 ${statusElement}
+                ${attemptChain ? `<div style="font-size: 10px; color: #555; margin-top: 8px; line-height: 1.3; text-align: left;">Last attempt: ${attemptChain}</div>` : ''}
             `;
             
             return card;
         }
 
-        async function downloadPortrait(bioguide, name) {
+        async function downloadPortrait(portraitId, name) {
             // Check if already local
-            if (localImages.has(bioguide)) {
-                displayMessage(`⚠️ ${name} (${bioguide}) is already in your local images folder`, 'info');
+            if (localImages.has(portraitId)) {
+                displayMessage(`⚠️ ${name} (${portraitId}) is already in your local images folder`, 'info');
                 return;
             }
             
             // Check if not in missing list
-            if (!missingImages.has(bioguide)) {
-                displayMessage(`⚠️ ${name} (${bioguide}) is not in the missing images list`, 'info');
+            if (!missingImages.has(portraitId)) {
+                displayMessage(`⚠️ ${name} (${portraitId}) is not in the missing images list`, 'info');
                 return;
             }
             
             // Check if previously failed
-            if (failedImages.has(bioguide)) {
-                displayMessage(`⚠️ ${name} (${bioguide}) previously failed to download`, 'info');
+            if (failedImages.has(portraitId)) {
+                displayMessage(`⚠️ ${name} (${portraitId}) previously failed to download`, 'info');
+                return;
+            }
+
+            const person = uniquePeople.get(portraitId);
+            if (!person) {
+                displayMessage(`❌ Could not find person for portrait ID ${portraitId}`, 'error');
                 return;
             }
             
-            const imageUrl = `https://bioguide.congress.gov/photo/${bioguide}.jpg`;
-            
             try {
-                const response = await fetch(imageUrl, { mode: 'cors' });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                
-                const blob = await response.blob();
+                const resolvedImage = await resolvePortraitImage(person);
+                attemptHistory.set(portraitId, formatAttemptChain(resolvedImage.attempts));
+
+                if (!resolvedImage || !resolvedImage.blob) {
+                    throw new Error('No portrait source succeeded (Bioguide and Wikipedia both failed)');
+                }
+
+                const blob = await convertBlobToJpeg(resolvedImage.blob);
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.style.display = 'none';
                 a.href = url;
-                a.download = `${bioguide}.jpg`;
+                a.download = `${portraitId}.jpg`;
                 document.body.appendChild(a);
                 a.click();
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
                 
                 // Remove from missing images list since we successfully downloaded it
-                missingImages.delete(bioguide);
+                missingImages.delete(portraitId);
                 saveMissingImages();
                 
                 // Add to local images
-                localImages.add(bioguide);
+                localImages.add(portraitId);
                 
-                displayMessage(`✅ Downloaded portrait for ${name} (${bioguide}) and removed from missing list`, 'success');
+                displayMessage(`✅ Downloaded portrait for ${name} (${portraitId}) via ${resolvedImage.source} and removed from missing list`, 'success');
                 
                 // Update stats to reflect the change
                 updateStats();
+                showPortraitsSample();
                 
             } catch (error) {
                 // Add to failed cache
-                failedImages.add(bioguide);
+                failedImages.add(portraitId);
                 saveFailedCache();
                 
-                displayMessage(`❌ Failed to download ${name} (${bioguide}): ${error.message}`, 'error');
+                displayMessage(`❌ Failed to download ${name} (${portraitId}): ${error.message}`, 'error');
+                showPortraitsSample();
                 throw error; // Re-throw so downloadAll can count the failure
             }
         }
 
         async function downloadAll() {
             const availableToDownload = Array.from(uniquePeople.values()).filter(person => 
-                missingImages.has(person.bioguide) && !failedImages.has(person.bioguide)
+                missingImages.has(person.portraitId) && !failedImages.has(person.portraitId)
             );
             const localCount = localImages.size;
             const missingCount = missingImages.size;
@@ -495,7 +720,7 @@
             
             for (const person of availableToDownload) {
                 try {
-                    await downloadPortrait(person.bioguide, person.name);
+                    await downloadPortrait(person.portraitId, person.name);
                     downloaded++;
                 } catch (error) {
                     failed++;

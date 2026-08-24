@@ -698,6 +698,11 @@
                     Show Territories & Non-States
                 </label>
             </div>
+            <div class="toggle-container" style="margin-top: 8px;">
+                <button id="resetImageCacheBtn" style="padding: 4px 10px; font-size: 12px; cursor: pointer;">
+                    Reset Image Cache
+                </button>
+            </div>
         </div>
 
         <!-- Party Graph Options Group -->
@@ -720,6 +725,9 @@
         // Configuration constants
         const CONFIG = {
             STORAGE_KEY: 'congressional-timeline-missing-images',
+            // Persistent missing-image caches can be polluted by transient network/resource errors.
+            // Keep this disabled so portraits can be retried on refresh.
+            ENABLE_PERSISTENT_MISSING_CACHE: false,
             IMAGE_CHECK_TIMEOUT: 10,
             TIMELINE_HEIGHT: 60,
             TIMELINE_WIDTH_OFFSET: 320,
@@ -742,6 +750,7 @@
         // Image cache management module
         const ImageCache = {
             loadFromStorage() {
+                if (!CONFIG.ENABLE_PERSISTENT_MISSING_CACHE) return;
                 try {
                     const cachedMissing = localStorage.getItem(CONFIG.STORAGE_KEY);
                     if (cachedMissing) {
@@ -754,6 +763,7 @@
             },
 
             saveToStorage(bioguide) {
+                if (!CONFIG.ENABLE_PERSISTENT_MISSING_CACHE) return;
                 try {
                     const currentMissing = Array.from(AppState.imageCache.missing);
                     localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(currentMissing));
@@ -832,6 +842,15 @@
                 return personName.trim();
             },
 
+            escapeHtml(value) {
+                return String(value ?? '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            },
+
             cleanPartyData(party, startYear) {
                 let cleanedParty = party || 'Unknown';
                 if (party === 'no party' || party === 'No Party') {
@@ -848,7 +867,23 @@
             },
 
             getBioguideId(person) {
-                return person.id?.bioguide || `unknown_${Math.random()}`;
+                if (person.id?.bioguide) return person.id.bioguide;
+                if (person.id?.govtrack) return `gt_${person.id.govtrack}`;
+                if (person.id?.wikidata) return `wd_${person.id.wikidata}`;
+                if (person.id?.wikipedia) {
+                    const normalizedTitle = person.id.wikipedia
+                        .replace(/\s+/g, '_')
+                        .replace(/[^a-zA-Z0-9_]/g, '');
+                    return `wp_${normalizedTitle}`;
+                }
+
+                const fallbackName = [person.name?.first, person.name?.last]
+                    .filter(Boolean)
+                    .join('_')
+                    .replace(/\s+/g, '_')
+                    .replace(/[^a-zA-Z0-9_]/g, '');
+                const fallbackBirthday = person.bio?.birthday || 'unknown';
+                return `name_${fallbackName}_${fallbackBirthday}`;
             },
 
             calculateTermDays(termStart, termEnd) {
@@ -1435,6 +1470,7 @@
                 this.bindPartyDateRange();
                 this.bindTerritoriesToggle();
                 this.bindPartyGraphOptions();
+                this.bindImageCacheReset();
             },
 
             bindViewModeToggle() {
@@ -1532,6 +1568,21 @@
                 const sortPartiesToggle = document.getElementById('sortPartiesByPercentage');
                 if (sortPartiesToggle) {
                     sortPartiesToggle.addEventListener('change', () => {
+                        if (AppState.currentData) {
+                            EventHandlers.refreshCurrentView();
+                        }
+                    });
+                }
+            },
+
+            bindImageCacheReset() {
+                const resetButton = document.getElementById('resetImageCacheBtn');
+                if (resetButton) {
+                    resetButton.addEventListener('click', () => {
+                        const shouldReset = confirm('Reset the image cache and re-render timelines?');
+                        if (!shouldReset) return;
+
+                        clearImageCache();
                         if (AppState.currentData) {
                             EventHandlers.refreshCurrentView();
                         }
@@ -2050,7 +2101,7 @@
                     
                     // Store person information for gender calculation
                     const personName = `${person.name.first || ''} ${person.name.nickname ? `"${person.name.nickname}"` : ''} ${person.name.middle || ''} ${person.name.last || ''} ${person.name.suffix || ''}`.trim();
-                    const bioguide = person.id?.bioguide || `unknown_${Math.random()}`;
+                    const bioguide = Utils.getBioguideId(person);
                     
                     if (!chamberData[chamber][seatKey].people[bioguide]) {
                         chamberData[chamber][seatKey].people[bioguide] = {
@@ -3639,6 +3690,8 @@
                 .html(d => {
                     const bioguide = d.bioguide;
                     const displayName = d.displayName || d.name;
+                    const escapedDisplayName = Utils.escapeHtml(displayName);
+                    const escapedWikipediaUrl = d.wikipediaUrl ? Utils.escapeHtml(d.wikipediaUrl) : null;
                     
                     // Check if we already know this image status from cache
                     const isKnownExisting = AppState.imageCache.existing.has(bioguide);
@@ -3659,16 +3712,18 @@
                     } else {
                         // Unknown status, try real image with fallback
                         imageUrl = `images/${bioguide}.jpg`;
-                        onErrorHandler = `this.src='images/placeholder_square.png'; AppState.imageCache.missing.add('${bioguide}'); ImageCache.saveToStorage('${bioguide}');`;
+                        onErrorHandler = `this.src='images/placeholder_square.png'; AppState.imageCache.missing.add('${bioguide}');`;
                         onLoadHandler = `AppState.imageCache.existing.add('${bioguide}');`;
                     }
                     
                     // Create portrait image element with appropriate handlers
                     const portraitImg = `<img src="${imageUrl}" 
-                        alt="${displayName}" 
+                        alt="${escapedDisplayName}" 
                         class="portrait-img"
                         data-bioguide="${bioguide}"
-                        data-name="${displayName}"
+                        data-name="${escapedDisplayName}"
+                        loading="lazy"
+                        decoding="async"
                         style="width: 25px; height: 25px; object-fit: cover; border-radius: 3px; margin-right: 8px; flex-shrink: 0;"
                         ${onErrorHandler ? `onerror="${onErrorHandler}"` : ''}
                         ${onLoadHandler ? `onload="${onLoadHandler}"` : ''}>`;
@@ -3676,15 +3731,15 @@
                     
                     // Create name link with tooltip functionality
                     const nameLink = d.wikipediaUrl ? 
-                        `<a href="${d.wikipediaUrl}" target="_blank" rel="noopener noreferrer" 
+                        `<a href="${escapedWikipediaUrl}" target="_blank" rel="noopener noreferrer" 
                            class="person-name-link" 
                            data-bioguide="${bioguide}" 
-                           data-name="${displayName}"
-                           style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${displayName}</a>` :
+                           data-name="${escapedDisplayName}"
+                           style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapedDisplayName}</a>` :
                         `<span class="person-name-link no-link" 
                                data-bioguide="${bioguide}" 
-                               data-name="${displayName}"
-                               style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${displayName}</span>`;
+                               data-name="${escapedDisplayName}"
+                               style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapedDisplayName}</span>`;
                     
                     return portraitImg + nameLink;
                 })
@@ -4661,16 +4716,19 @@
             } else {
                 // Unknown status, try real image with fallback
                 imageUrl = `images/${bioguide}.jpg`;
-                onErrorHandler = `this.src='images/placeholder_square.png'; AppState.imageCache.missing.add('${bioguide}'); ImageCache.saveToStorage('${bioguide}');`;
+                onErrorHandler = `this.src='images/placeholder_square.png'; AppState.imageCache.missing.add('${bioguide}');`;
                 onLoadHandler = `AppState.imageCache.existing.add('${bioguide}');`;
             }
 
+            const safeName = Utils.escapeHtml(name);
+
             const tooltipContent = `
-                <img src="${imageUrl}" alt="${name}" 
+                <img src="${imageUrl}" alt="${safeName}" 
+                     decoding="async"
                      ${onErrorHandler ? `onerror="${onErrorHandler}"` : ''}
                      ${onLoadHandler ? `onload="${onLoadHandler}"` : ''}>
-                <div class="name">${name}</div>
-                <div class="bioguide">Bioguide ID: ${bioguide}</div>
+                <div class="name">${safeName}</div>
+                <div class="bioguide">Portrait ID: ${bioguide}</div>
             `;
 
             portraitTooltip
