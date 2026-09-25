@@ -277,50 +277,173 @@
         }
         
         .view-controls {
-            background: #f8f9fa;
-            border: 1px solid #e9ecef;
-            border-radius: 8px;
-            padding: 20px;
-            margin: 20px 0;
-            max-width: 1200px;
+            background: #fff;
+            border: 1px solid #dfe6e8;
+            border-radius: 12px;
+            padding: 22px 24px;
+            margin: 22px auto 28px;
+            max-width: 1320px;
             margin-left: auto;
             margin-right: auto;
+            box-shadow: 0 8px 24px rgba(25, 48, 55, 0.06);
         }
         
         .view-controls h3 {
-            margin: 0 0 15px 0;
-            color: #2c3e50;
-            font-size: 18px;
+            margin: 0;
+            color: #18343b;
+            font-size: 20px;
+            line-height: 1.25;
+            letter-spacing: 0;
         }
         
         .toggle-container {
             display: flex;
-            gap: 30px;
-            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: stretch;
         }
         
         .toggle-label {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 9px;
             cursor: pointer;
             font-weight: 500;
-            color: #2c3e50;
-            transition: color 0.2s ease;
+            color: #29454b;
+            line-height: 1.4;
+            transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
         }
         
-        .toggle-label:hover {
-            color: #3498db;
+        .view-controls > h3 {
+            padding: 0 0 17px;
+        }
+
+        .view-controls > .control-section {
+            border-top: 1px solid #e8edee;
+            padding: 17px 0 18px;
+        }
+
+        .view-controls > .control-section:last-child {
+            padding-bottom: 0;
+        }
+
+        .control-section h4 {
+            margin: 0 0 11px;
+            color: #50676b;
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 1.3;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .control-section--modes .toggle-container,
+        .control-section--sorting .toggle-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 178px), 1fr));
+            gap: 9px;
+        }
+
+        .control-section--modes .toggle-label,
+        .control-section--sorting .toggle-label {
+            min-height: 46px;
+            min-width: 0;
+            box-sizing: border-box;
+            padding: 10px 12px;
+            border: 1px solid #e1e8e9;
+            border-radius: 7px;
+            background: #fbfcfc;
+            align-items: flex-start;
+        }
+
+        .control-section--modes .toggle-label:hover,
+        .control-section--sorting .toggle-label:hover {
+            border-color: #88aaa7;
+            background: #f4f9f8;
+        }
+
+        .control-section--modes .toggle-label:has(input:checked),
+        .control-section--sorting .toggle-label:has(input:checked) {
+            border-color: #397d78;
+            background: #edf6f4;
+            color: #173f3d;
+            box-shadow: inset 0 0 0 1px rgba(57, 125, 120, 0.12);
+        }
+
+        .control-section--events .toggle-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+            gap: 8px;
+        }
+
+        .control-section--events .toggle-label,
+        .control-section--additional .toggle-label,
+        .control-section--party-graph .toggle-label,
+        .control-section--state-representation .toggle-label {
+            min-height: 38px;
+            box-sizing: border-box;
+            padding: 8px 10px;
+            border: 1px solid #e6ebec;
+            border-radius: 6px;
+            background: #fafcfc;
+        }
+
+        .control-section--events .toggle-label:hover,
+        .control-section--additional .toggle-label:hover,
+        .control-section--party-graph .toggle-label:hover,
+        .control-section--state-representation .toggle-label:hover {
+            background: #f2f7f6;
+            border-color: #c8d8d6;
+        }
+
+        .view-controls input[type="radio"],
+        .view-controls input[type="checkbox"] {
+            accent-color: #397d78;
+            flex: 0 0 auto;
+            margin: 2px 0 0;
         }
         
-        .toggle-label input[type="radio"] {
-            margin: 0;
-            transform: scale(1.2);
+        .control-section--events .toggle-container + .toggle-container,
+        .control-section--additional .toggle-container + .toggle-container {
+            margin-top: 8px;
         }
-        
-        .toggle-label input[type="checkbox"] {
-            margin: 0;
-            transform: scale(1.2);
+
+        .control-section--sorting select,
+        .control-section--sorting input[type="number"] {
+            max-width: 100%;
+            min-height: 32px;
+            box-sizing: border-box;
+            border: 1px solid #d6e0e1;
+            border-radius: 5px;
+            background: #fff;
+            color: #29454b;
+        }
+
+        .control-section--sorting .toggle-label:has(select) {
+            flex-wrap: wrap;
+        }
+
+        .control-section--sorting .toggle-label select {
+            flex: 1 1 100%;
+            width: 100%;
+            margin-left: 0 !important;
+        }
+
+        @media (max-width: 640px) {
+            .view-controls {
+                padding: 17px 15px;
+                margin-top: 16px;
+            }
+
+            .view-controls > .control-section {
+                padding: 14px 0;
+            }
+
+            .control-section--modes .toggle-container,
+            .control-section--sorting .toggle-container,
+            .control-section--events .toggle-container {
+                grid-template-columns: 1fr;
+            }
         }
         
         .civil-war-overlay {
@@ -683,8 +806,8 @@
         <h3>View Options</h3>
         
         <!-- Timeline Organization Group -->
-        <div style="margin-bottom: 20px;">
-            <h4 style="margin: 0 0 10px 0; color: #2c3e50; font-size: 14px; font-weight: 600;">Timeline Organization</h4>
+        <div class="control-section control-section--modes">
+            <h4>Timeline Organization</h4>
             <div class="toggle-container">
                 <label class="toggle-label">
                     <input type="radio" name="viewMode" value="individual" checked> 
@@ -718,21 +841,17 @@
         </div>
 
         <!-- Historical Events Group -->
-        <div style="margin-bottom: 20px;">
-            <h4 style="margin: 0 0 10px 0; color: #2c3e50; font-size: 14px; font-weight: 600;">Historical Events</h4>
+        <div class="control-section control-section--events">
+            <h4>Historical Events</h4>
             <div class="toggle-container">
                 <label class="toggle-label">
                     <input type="checkbox" id="civilWarOverlay"> 
                     Show Civil War Period (1861-1865)
                 </label>
-            </div>
-            <div class="toggle-container" style="margin-top: 8px;">
                 <label class="toggle-label">
                     <input type="checkbox" id="civilRightsActLine"> 
                     Show Civil Rights Act (July 2, 1964)
                 </label>
-            </div>
-            <div class="toggle-container" style="margin-top: 8px;">
                 <label class="toggle-label">
                     <input type="checkbox" id="statehoodLines"> 
                     Show Statehood Dates
@@ -741,8 +860,8 @@
         </div>
 
         <!-- Sorting Options Group -->
-        <div style="margin-bottom: 20px;">
-            <h4 style="margin: 0 0 10px 0; color: #2c3e50; font-size: 14px; font-weight: 600;">Sorting Options</h4>
+        <div class="control-section control-section--sorting">
+            <h4>Sorting Options</h4>
             <div class="toggle-container">
                 <label class="toggle-label">
                     <input type="radio" name="stateOrdering" value="alphabetical" checked> 
@@ -803,24 +922,19 @@
         </div>
 
         <!-- Additional Options Group -->
-        <div style="margin-bottom: 10px;">
-            <h4 style="margin: 0 0 10px 0; color: #2c3e50; font-size: 14px; font-weight: 600;">Additional Options</h4>
+        <div class="control-section control-section--additional">
+            <h4>Additional Options</h4>
             <div class="toggle-container">
                 <label class="toggle-label">
                     <input type="checkbox" id="showTerritories"> 
                     Show Territories & Non-States
                 </label>
             </div>
-            <div class="toggle-container" style="margin-top: 8px;">
-                <button id="resetImageCacheBtn" style="padding: 4px 10px; font-size: 12px; cursor: pointer;">
-                    Reset Image Cache
-                </button>
-            </div>
         </div>
 
         <!-- Party Graph Options Group -->
-        <div style="margin-bottom: 10px; display: none;" id="partyGraphOptions">
-            <h4 style="margin: 0 0 10px 0; color: #2c3e50; font-size: 14px; font-weight: 600;">Party Graph Options</h4>
+        <div class="control-section control-section--party-graph" id="partyGraphOptions" style="display: none;">
+            <h4>Party Graph Options</h4>
             <div class="toggle-container">
                 <label class="toggle-label">
                     <input type="checkbox" id="sortPartiesByPercentage"> 
@@ -830,8 +944,8 @@
         </div>
 
         <!-- State Representation Options Group -->
-        <div style="margin-bottom: 10px; display: none;" id="stateRepresentationOptions">
-            <h4 style="margin: 0 0 10px 0; color: #2c3e50; font-size: 14px; font-weight: 600;">State Representation Options</h4>
+        <div class="control-section control-section--state-representation" id="stateRepresentationOptions" style="display: none;">
+            <h4>State Representation Options</h4>
             <div class="toggle-container">
                 <label class="toggle-label" style="font-weight: 600; margin-top: 4px;">Seat Basis:</label>
                 <label class="toggle-label">
@@ -862,6 +976,13 @@
     <div class="tooltip" id="tooltip"></div>
 
     <script>
+        const partyGenderLegend = document.getElementById('legend');
+
+        function showPartyGenderLegend() {
+            partyGenderLegend.style.display = 'flex';
+            document.getElementById('timeline').prepend(partyGenderLegend);
+        }
+
         // Configuration constants
         const CONFIG = {
             STORAGE_KEY: 'congressional-timeline-missing-images',
@@ -953,13 +1074,6 @@
                 });
             },
 
-            clear() {
-                localStorage.removeItem(CONFIG.STORAGE_KEY);
-                AppState.imageCache.existing.clear();
-                AppState.imageCache.missing.clear();
-                AppState.imageCache.checking.clear();
-                console.log('Image cache cleared');
-            }
         };
 
         // Initialize localStorage cache on page load
@@ -1648,11 +1762,6 @@
             };
         }
 
-        // Clear localStorage cache (useful for debugging)
-        function clearImageCache() {
-            ImageCache.clear();
-        }
-        
         // Event handling module
         const EventHandlers = {
             init() {
@@ -1663,7 +1772,6 @@
                 this.bindTerritoriesToggle();
                 this.bindPartyGraphOptions();
                 this.bindStateRepresentationOptions();
-                this.bindImageCacheReset();
             },
 
             bindViewModeToggle() {
@@ -1784,21 +1892,6 @@
                         }
                     });
                 });
-            },
-
-            bindImageCacheReset() {
-                const resetButton = document.getElementById('resetImageCacheBtn');
-                if (resetButton) {
-                    resetButton.addEventListener('click', () => {
-                        const shouldReset = confirm('Reset the image cache and re-render timelines?');
-                        if (!shouldReset) return;
-
-                        clearImageCache();
-                        if (AppState.currentData) {
-                            EventHandlers.refreshCurrentView();
-                        }
-                    });
-                }
             },
 
             refreshCurrentView() {
@@ -1952,7 +2045,7 @@
             
             // Clear previous timeline
             document.getElementById('timeline').innerHTML = '';
-            document.getElementById('legend').style.display = 'flex';
+            showPartyGenderLegend();
             document.getElementById('viewControls').style.display = 'block';
             
             // Group data by chamber, state and seat, then by person
@@ -2254,7 +2347,7 @@
             
             // Clear previous timeline
             document.getElementById('timeline').innerHTML = '';
-            document.getElementById('legend').style.display = 'flex';
+            showPartyGenderLegend();
             document.getElementById('viewControls').style.display = 'block';
             
             // Group data by chamber, state and seat (similar to individual but merge all terms)
@@ -2498,7 +2591,7 @@
             
             // Clear previous timeline
             document.getElementById('timeline').innerHTML = '';
-            document.getElementById('legend').style.display = 'flex';
+            showPartyGenderLegend();
             document.getElementById('viewControls').style.display = 'block';
             
             // Group all terms by state (no chamber separation, no seat separation)
@@ -2762,7 +2855,7 @@
             
             // Clear previous timeline
             document.getElementById('timeline').innerHTML = '';
-            document.getElementById('legend').style.display = 'flex';
+            showPartyGenderLegend();
             document.getElementById('viewControls').style.display = 'block';
             
             // Group data by state and calculate party percentages by year
@@ -3097,7 +3190,7 @@
             AppState.currentData = data;
 
             document.getElementById('timeline').innerHTML = '';
-            document.getElementById('legend').style.display = 'flex';
+            showPartyGenderLegend();
             document.getElementById('viewControls').style.display = 'block';
 
             const stateSeatTerms = {};
@@ -3341,7 +3434,7 @@
 
             // Clear previous timeline
             document.getElementById('timeline').innerHTML = '';
-            document.getElementById('legend').style.display = 'flex';
+            showPartyGenderLegend();
             document.getElementById('viewControls').style.display = 'block';
 
             const stateYearAccumulator = {};
@@ -4130,7 +4223,7 @@
             AppState.currentData = data;
 
             document.getElementById('timeline').innerHTML = '';
-            document.getElementById('legend').style.display = 'flex';
+            showPartyGenderLegend();
             document.getElementById('viewControls').style.display = 'block';
 
             const showTerritories = document.getElementById('showTerritories').checked;
@@ -5001,6 +5094,10 @@
                 .style('margin-bottom', '0px')
                 .style('min-height', timelineHeight + 'px')
                 .style('border-bottom', '1px solid #e0e0e0');
+
+            if (stateData.state === 'Executive Branch') {
+                container.node().insertBefore(partyGenderLegend, stateContainer.node());
+            }
             
             // Add drag event listeners using DOM methods
             stateContainer.node().addEventListener('dragstart', handleDragStart);
