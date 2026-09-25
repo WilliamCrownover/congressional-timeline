@@ -523,10 +523,111 @@
             stroke: #333;
             stroke-width: 1;
         }
+
+        .age-bar,
+        .chamber-age-bar {
+            transition: opacity 0.2s ease;
+        }
+
+        .age-bar:hover,
+        .chamber-age-bar:hover {
+            opacity: 0.85;
+            stroke: #333;
+            stroke-width: 1;
+        }
         
         .party-democrat-bar { fill: #3498db; }
         .party-republican-bar { fill: #e74c3c; }
         .party-other-bar { fill: #95a5a6; }
+
+        .incumbency-incumbent { fill: #2e86de; }
+        .incumbency-returning { fill: #8e44ad; }
+        .incumbency-new { fill: #f39c12; }
+
+        .state-representation-layout {
+            display: flex;
+            align-items: stretch;
+            min-height: min(80vh, 960px);
+        }
+
+        .state-representation-sidebar {
+            width: 250px;
+            flex-shrink: 0;
+            border-right: 2px solid #e9ecef;
+            background: linear-gradient(180deg, #f8fafc 0%, #eef3f7 100%);
+            padding: 16px;
+            box-sizing: border-box;
+            max-height: min(80vh, 960px);
+            overflow-y: auto;
+        }
+
+        .state-representation-sidebar h4 {
+            margin: 0 0 10px 0;
+            color: #2c3e50;
+            font-size: 15px;
+        }
+
+        .state-representation-sidebar p {
+            margin: 0 0 16px 0;
+            color: #5d6d7e;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .state-representation-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 12px;
+            padding: 4px 0;
+            color: #2c3e50;
+        }
+
+        .state-representation-swatch {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+            flex-shrink: 0;
+            border: 1px solid rgba(0, 0, 0, 0.12);
+        }
+
+        .state-representation-chart {
+            flex: 1;
+            position: relative;
+            min-height: min(80vh, 960px);
+        }
+
+        .state-representation-bar {
+            transition: opacity 0.15s ease;
+        }
+
+        .state-representation-bar:hover {
+            opacity: 0.85;
+            stroke: rgba(0, 0, 0, 0.45);
+            stroke-width: 1;
+        }
+
+        .state-representation-bar.faded {
+            opacity: 0.2;
+        }
+
+        .state-representation-bar.highlighted {
+            opacity: 1;
+            stroke: #111;
+            stroke-width: 1.25;
+        }
+
+        .state-representation-legend-item.active {
+            font-weight: 700;
+            color: #111;
+        }
+
+        .state-representation-note {
+            padding: 14px 18px 0;
+            color: #4a5568;
+            font-size: 13px;
+            line-height: 1.45;
+        }
     </style>
 </head>
 <body>
@@ -600,6 +701,18 @@
                 <label class="toggle-label">
                     <input type="radio" name="viewMode" value="party-graph"> 
                     Party Percentage Graph View
+                </label>
+                <label class="toggle-label">
+                    <input type="radio" name="viewMode" value="age-graph"> 
+                    Average Age Graph View
+                </label>
+                <label class="toggle-label">
+                    <input type="radio" name="viewMode" value="incumbency-graph"> 
+                    Incumbency vs New Members View
+                </label>
+                <label class="toggle-label">
+                    <input type="radio" name="viewMode" value="state-representation-graph"> 
+                    State Share of Congress View
                 </label>
             </div>
         </div>
@@ -712,6 +825,33 @@
                 <label class="toggle-label">
                     <input type="checkbox" id="sortPartiesByPercentage"> 
                     Sort parties by percentage (highest first)
+                </label>
+            </div>
+        </div>
+
+        <!-- State Representation Options Group -->
+        <div style="margin-bottom: 10px; display: none;" id="stateRepresentationOptions">
+            <h4 style="margin: 0 0 10px 0; color: #2c3e50; font-size: 14px; font-weight: 600;">State Representation Options</h4>
+            <div class="toggle-container">
+                <label class="toggle-label" style="font-weight: 600; margin-top: 4px;">Seat Basis:</label>
+                <label class="toggle-label">
+                    <input type="radio" name="stateRepresentationSeatBasis" value="above-baseline" checked>
+                    Remove Standard 3-Seat Delegation
+                </label>
+                <label class="toggle-label">
+                    <input type="radio" name="stateRepresentationSeatBasis" value="all-seats">
+                    Count All Seats
+                </label>
+            </div>
+            <div class="toggle-container" style="margin-top: 8px;">
+                <label class="toggle-label" style="font-weight: 600; margin-top: 4px;">Display Metric:</label>
+                <label class="toggle-label">
+                    <input type="radio" name="stateRepresentationMetric" value="percentage" checked>
+                    Percentage
+                </label>
+                <label class="toggle-label">
+                    <input type="radio" name="stateRepresentationMetric" value="count">
+                    Total Count
                 </label>
             </div>
         </div>
@@ -895,6 +1035,29 @@
             }
         };
 
+        function normalizeHouseDistrictValue(district) {
+            if (district === null || district === undefined) return 'AL';
+            const normalized = String(district).trim().toUpperCase();
+            if (!normalized) return 'AL';
+            if (normalized === '0' || normalized === '-1' || normalized === 'AT-LARGE' || normalized === 'AT LARGE') {
+                return 'AL';
+            }
+            return normalized;
+        }
+
+        function isAtLargeHouseDistrict(district) {
+            return normalizeHouseDistrictValue(district) === 'AL';
+        }
+
+        function getHouseDistrictLabel(district) {
+            return isAtLargeHouseDistrict(district) ? 'At-Large' : normalizeHouseDistrictValue(district);
+        }
+
+        function getHouseSeatKey(state, district) {
+            const normalizedDistrict = normalizeHouseDistrictValue(district);
+            return `${state}-House-District-${normalizedDistrict}`;
+        }
+
         // Gender ratio calculation
         function calculateGenderRatio(seat) {
             const people = Object.values(seat.people || {});
@@ -986,6 +1149,23 @@
             const b = Math.round(0 * (1 - ratio)); // Stay at 0
             
             return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        // Higher-contrast age ramp for age graph bars only.
+        function getAgeGraphColor(age, minAge = 25, maxAge = 100) {
+            if (!Number.isFinite(age) || age < minAge) {
+                return '#666666';
+            }
+
+            const clampedAge = Math.min(Math.max(age, minAge), maxAge);
+            const ratio = (clampedAge - minAge) / Math.max(1, maxAge - minAge);
+
+            // Keep saturation high, move from lighter yellow to darker orange.
+            const hue = 52 - (24 * ratio);        // 52deg (yellow) -> 28deg (orange)
+            const saturation = 96;                // keep vivid/saturated
+            const lightness = 72 - (34 * ratio);  // lighter -> darker
+
+            return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
         }
 
         // Party classification and color management
@@ -1470,6 +1650,7 @@
                 this.bindPartyDateRange();
                 this.bindTerritoriesToggle();
                 this.bindPartyGraphOptions();
+                this.bindStateRepresentationOptions();
                 this.bindImageCacheReset();
             },
 
@@ -1492,12 +1673,20 @@
                 if (partyGraphOptions) {
                     partyGraphOptions.style.display = event.target.value === 'party-graph' ? 'block' : 'none';
                 }
+
+                const stateRepresentationOptions = document.getElementById('stateRepresentationOptions');
+                if (stateRepresentationOptions) {
+                    stateRepresentationOptions.style.display = event.target.value === 'state-representation-graph' ? 'block' : 'none';
+                }
                 
                 const viewModeHandlers = {
                     'individual': () => processAndVisualize(AppState.currentData),
                     'collapsed': () => processAndVisualizeCollapsed(AppState.currentData),
                     'stacked': () => processAndVisualizeStacked(AppState.currentData),
-                    'party-graph': () => processAndVisualizePartyGraph(AppState.currentData)
+                    'party-graph': () => processAndVisualizePartyGraph(AppState.currentData),
+                    'age-graph': () => processAndVisualizeAgeGraph(AppState.currentData),
+                    'incumbency-graph': () => processAndVisualizeIncumbencyGraph(AppState.currentData),
+                    'state-representation-graph': () => processAndVisualizeStateRepresentationGraph(AppState.currentData)
                 };
 
                 const handler = viewModeHandlers[event.target.value];
@@ -1575,6 +1764,16 @@
                 }
             },
 
+            bindStateRepresentationOptions() {
+                document.querySelectorAll('input[name="stateRepresentationMetric"], input[name="stateRepresentationSeatBasis"]').forEach(radio => {
+                    radio.addEventListener('change', () => {
+                        if (AppState.currentData) {
+                            EventHandlers.refreshCurrentView();
+                        }
+                    });
+                });
+            },
+
             bindImageCacheReset() {
                 const resetButton = document.getElementById('resetImageCacheBtn');
                 if (resetButton) {
@@ -1596,7 +1795,10 @@
                     'individual': () => processAndVisualize(AppState.currentData),
                     'collapsed': () => processAndVisualizeCollapsed(AppState.currentData),
                     'stacked': () => processAndVisualizeStacked(AppState.currentData),
-                    'party-graph': () => processAndVisualizePartyGraph(AppState.currentData)
+                    'party-graph': () => processAndVisualizePartyGraph(AppState.currentData),
+                    'age-graph': () => processAndVisualizeAgeGraph(AppState.currentData),
+                    'incumbency-graph': () => processAndVisualizeIncumbencyGraph(AppState.currentData),
+                    'state-representation-graph': () => processAndVisualizeStateRepresentationGraph(AppState.currentData)
                 };
 
                 const handler = viewModeHandlers[viewMode];
@@ -1775,7 +1977,7 @@
                     if (chamber === 'sen') {
                         seatKey = `${term.state}-Senate-Class${term.class}`;
                     } else if (chamber === 'rep') {
-                        seatKey = `${term.state}-District-${term.district || 'AL'}`;
+                        seatKey = `${term.state}-District-${normalizeHouseDistrictValue(term.district)}`;
                     } else if (chamber === 'prez') {
                         seatKey = 'US-President';
                     } else if (chamber === 'viceprez') {
@@ -1819,7 +2021,7 @@
                             seatDescription = `Senate Class ${term.class}`;
                             stateValue = term.state;
                         } else if (chamber === 'rep') {
-                            seatDescription = `District ${term.district || 'At-Large'}`;
+                            seatDescription = `District ${getHouseDistrictLabel(term.district)}`;
                             stateValue = term.state;
                         } else if (chamber === 'prez') {
                             seatDescription = 'President';
@@ -2055,7 +2257,7 @@
                     if (chamber === 'sen') {
                         seatKey = `${term.state}-Senate-Class${term.class}`;
                     } else if (chamber === 'rep') {
-                        seatKey = `${term.state}-District-${term.district || 'AL'}`;
+                        seatKey = `${term.state}-District-${normalizeHouseDistrictValue(term.district)}`;
                     } else if (chamber === 'prez') {
                         seatKey = 'US-President';
                     } else if (chamber === 'viceprez') {
@@ -2077,7 +2279,7 @@
                             seatDescription = `Senate Class ${term.class}`;
                             stateValue = term.state;
                         } else if (chamber === 'rep') {
-                            seatDescription = `District ${term.district || 'At-Large'}`;
+                            seatDescription = `District ${getHouseDistrictLabel(term.district)}`;
                             stateValue = term.state;
                         } else if (chamber === 'prez') {
                             seatDescription = 'President';
@@ -2588,7 +2790,7 @@
                     // Create unique seat identifier
                     const seatKey = chamber === 'sen' ? 
                         `${state}-Senate-Class-${term.class || 'Unknown'}` : 
-                        `${state}-House-District-${term.district || 'AL'}`;
+                        getHouseSeatKey(state, term.district);
                     
                     // For each year this term spans, record the party affiliation by seat
                     for (let year = startYear; year <= cappedEndYear; year++) {
@@ -2719,7 +2921,7 @@
                         // Create unique seat identifier
                         const seatKey = chamber === 'sen' ? 
                             `${state}-Senate-Class-${term.class || 'Unknown'}` : 
-                            `${state}-House-District-${term.district || 'AL'}`;
+                            getHouseSeatKey(state, term.district);
                         
                         for (let year = startYear; year <= cappedEndYear; year++) {
                             if (chamber === 'sen') {
@@ -2877,6 +3079,1492 @@
                     .style('color', '#666')
                     .text('No data available for party percentage graph view');
             }
+        }
+
+        function processAndVisualizeStateRepresentationGraph(data) {
+            AppState.currentData = data;
+
+            document.getElementById('timeline').innerHTML = '';
+            document.getElementById('legend').style.display = 'flex';
+            document.getElementById('viewControls').style.display = 'block';
+
+            const stateSeatTerms = {};
+            const currentYear = new Date().getFullYear();
+            let minObservedYear = Number.POSITIVE_INFINITY;
+            let maxObservedYear = Number.NEGATIVE_INFINITY;
+
+            // Track concurrent at-large House term starts per state so we can
+            // split multi-member at-large delegations into separate synthetic seats.
+            const atLargeConcurrentStarts = {};
+
+            data.forEach(person => {
+                if (!person.terms) return;
+                const personId = Utils.getBioguideId(person);
+
+                person.terms.forEach(term => {
+                    if (term.type !== 'rep') return;
+                    if (!isAtLargeHouseDistrict(term.district)) return;
+
+                    const state = term.state;
+                    const startDateKey = new Date(term.start).toISOString().slice(0, 10);
+                    const startKey = `${state}|${startDateKey}`;
+
+                    if (!atLargeConcurrentStarts[startKey]) {
+                        atLargeConcurrentStarts[startKey] = new Set();
+                    }
+                    atLargeConcurrentStarts[startKey].add(personId);
+                });
+            });
+
+            data.forEach(person => {
+                if (!person.terms) return;
+                const personId = Utils.getBioguideId(person);
+
+                person.terms.forEach(term => {
+                    if (term.type !== 'sen' && term.type !== 'rep') {
+                        return;
+                    }
+
+                    const state = term.state;
+                    const chamber = term.type;
+                    const startYear = new Date(term.start).getFullYear();
+                    const endYear = Math.min(new Date(term.end).getFullYear(), currentYear);
+                    const startDate = new Date(term.start);
+                    const endDate = new Date(term.end);
+                    let seatKey;
+
+                    if (chamber === 'sen') {
+                        seatKey = `${state}-Senate-Class-${term.class || 'Unknown'}`;
+                    } else {
+                        const districtValue = normalizeHouseDistrictValue(term.district);
+
+                        if (isAtLargeHouseDistrict(term.district)) {
+                            const startDateKey = startDate.toISOString().slice(0, 10);
+                            const startKey = `${state}|${startDateKey}`;
+                            const concurrentSet = atLargeConcurrentStarts[startKey];
+
+                            if (concurrentSet && concurrentSet.size > 1) {
+                                const sortedMembers = Array.from(concurrentSet).sort();
+                                const memberIndex = Math.max(0, sortedMembers.indexOf(personId)) + 1;
+                                seatKey = `${state}-House-AtLarge-${startDateKey}-M${memberIndex}`;
+                            } else {
+                                seatKey = `${state}-House-AtLarge`;
+                            }
+                        } else {
+                            seatKey = `${state}-House-District-${districtValue}`;
+                        }
+                    }
+
+                    minObservedYear = Math.min(minObservedYear, startYear);
+                    maxObservedYear = Math.max(maxObservedYear, endYear);
+
+                    if (!stateSeatTerms[state]) {
+                        stateSeatTerms[state] = {};
+                    }
+                    if (!stateSeatTerms[state][seatKey]) {
+                        stateSeatTerms[state][seatKey] = [];
+                    }
+
+                    stateSeatTerms[state][seatKey].push({ startDate, endDate });
+                });
+            });
+
+            const showTerritories = document.getElementById('showTerritories').checked;
+            const filteredStateSeatTerms = {};
+
+            Object.keys(stateSeatTerms).forEach(state => {
+                if (showTerritories || !isTerritoryOrNonState(state)) {
+                    filteredStateSeatTerms[state] = stateSeatTerms[state];
+                }
+            });
+
+            if (!Number.isFinite(minObservedYear) || !Number.isFinite(maxObservedYear)) {
+                d3.select('#timeline')
+                    .append('div')
+                    .style('padding', '20px')
+                    .style('text-align', 'center')
+                    .style('color', '#666')
+                    .text('No congressional state representation data available for this view');
+                return;
+            }
+
+            const sortedYears = [];
+            for (let year = minObservedYear; year <= maxObservedYear; year++) {
+                if (year <= currentYear && year % 2 === 0) {
+                    sortedYears.push(year);
+                }
+            }
+
+            if (sortedYears.length === 0) {
+                d3.select('#timeline')
+                    .append('div')
+                    .style('padding', '20px')
+                    .style('text-align', 'center')
+                    .style('color', '#666')
+                    .text('No even-year congressional state representation data available for this view');
+                return;
+            }
+
+            const totalSeatsByYear = {};
+            const totalExtraSeatsByYear = {};
+            const stateRepresentationData = {};
+
+            function isSeatActiveOnSnapshot(termRanges, snapshotDate) {
+                return termRanges.some(range => range.startDate <= snapshotDate && range.endDate >= snapshotDate);
+            }
+
+            function getSeatCountForStateYear(state, year) {
+                const seatTermsForState = filteredStateSeatTerms[state] || {};
+                if (year >= 1933) {
+                    const snapshotDate = new Date(year, 6, 1);
+                    return Object.values(seatTermsForState).reduce((count, termRanges) => {
+                        return count + (isSeatActiveOnSnapshot(termRanges, snapshotDate) ? 1 : 0);
+                    }, 0);
+                }
+
+                // Pre-1933 data can have irregular historical boundaries; use strongest
+                // in-year count to avoid single-date blind spots.
+                const snapshotMonths = [0, 3, 6, 9];
+                let maxSeatCount = 0;
+
+                snapshotMonths.forEach(month => {
+                    const snapshotDate = new Date(year, month, 1);
+                    const seatCount = Object.values(seatTermsForState).reduce((count, termRanges) => {
+                        return count + (isSeatActiveOnSnapshot(termRanges, snapshotDate) ? 1 : 0);
+                    }, 0);
+
+                    if (seatCount > maxSeatCount) {
+                        maxSeatCount = seatCount;
+                    }
+                });
+
+                return maxSeatCount;
+            }
+
+            Object.keys(filteredStateSeatTerms).forEach(state => {
+                stateRepresentationData[state] = {};
+
+                sortedYears.forEach(year => {
+                    const seatCount = getSeatCountForStateYear(state, year);
+                    if (seatCount <= 0) {
+                        return;
+                    }
+
+                    totalSeatsByYear[year] = (totalSeatsByYear[year] || 0) + seatCount;
+                    stateRepresentationData[state][year] = { seatCount };
+                });
+            });
+
+            Object.keys(stateRepresentationData).forEach(state => {
+                Object.keys(stateRepresentationData[state]).forEach(year => {
+                    const seatCount = stateRepresentationData[state][year].seatCount;
+                    const totalSeats = totalSeatsByYear[year] || 0;
+                    const baselineSeats = 3;
+                    const extraSeats = Math.max(0, seatCount - baselineSeats);
+
+                    totalExtraSeatsByYear[year] = (totalExtraSeatsByYear[year] || 0) + extraSeats;
+
+                    stateRepresentationData[state][year] = {
+                        seatCount,
+                        totalSeats,
+                        baselineSeats,
+                        extraSeats
+                    };
+                });
+            });
+
+            Object.keys(stateRepresentationData).forEach(state => {
+                Object.keys(stateRepresentationData[state]).forEach(year => {
+                    const record = stateRepresentationData[state][year];
+                    const totalExtraSeats = totalExtraSeatsByYear[year] || 0;
+                    const extraPoolSharePercent = totalExtraSeats > 0 ? (record.extraSeats / totalExtraSeats) * 100 : 0;
+
+                    stateRepresentationData[state][year] = {
+                        ...record,
+                        sharePercent: record.totalSeats > 0 ? (record.seatCount / record.totalSeats) * 100 : 0,
+                        baselineSharePercent: record.totalSeats > 0 ? (record.baselineSeats / record.totalSeats) * 100 : 0,
+                        extraSharePercent: record.totalSeats > 0 ? (record.extraSeats / record.totalSeats) * 100 : 0,
+                        totalExtraSeats,
+                        extraPoolSharePercent
+                    };
+                });
+            });
+
+            const selectedSeatBasis = document.querySelector('input[name="stateRepresentationSeatBasis"]:checked')?.value || 'above-baseline';
+            const isAllSeatsBasis = selectedSeatBasis === 'all-seats';
+
+            const yearsWithAnySeats = sortedYears.filter(year => (totalSeatsByYear[year] || 0) > 0);
+            const yearsWithExtraSeats = sortedYears.filter(year => (totalExtraSeatsByYear[year] || 0) > 0);
+            const displayYears = isAllSeatsBasis ? yearsWithAnySeats : yearsWithExtraSeats;
+
+            if (displayYears.length === 0) {
+                d3.select('#timeline')
+                    .append('div')
+                    .style('padding', '20px')
+                    .style('text-align', 'center')
+                    .style('color', '#666')
+                    .text(isAllSeatsBasis
+                        ? 'No congressional seat data was found in the selected data range'
+                        : 'No seats above the 3-seat baseline were found in the selected data range');
+                return;
+            }
+
+            const sortedStates = Object.keys(stateRepresentationData).sort((a, b) => {
+                const statehoodA = getStatehoodDate(a) || new Date('1776-07-04');
+                const statehoodB = getStatehoodDate(b) || new Date('1776-07-04');
+                const statehoodDiff = statehoodA - statehoodB;
+                if (statehoodDiff !== 0) return statehoodDiff;
+                return getFullStateName(a).localeCompare(getFullStateName(b));
+            });
+
+            const globalMinDate = new Date(displayYears[0], 0, 1);
+            const globalMaxDate = new Date(displayYears[displayYears.length - 1], 11, 31);
+
+            createStateRepresentationChart(stateRepresentationData, globalMinDate, globalMaxDate, displayYears, sortedStates);
+        }
+
+        function processAndVisualizeAgeGraph(data) {
+            // Store data for view mode switching
+            AppState.currentData = data;
+
+            // Clear previous timeline
+            document.getElementById('timeline').innerHTML = '';
+            document.getElementById('legend').style.display = 'flex';
+            document.getElementById('viewControls').style.display = 'block';
+
+            const stateYearAccumulator = {};
+            const senateStateYearAccumulator = {};
+            const houseStateYearAccumulator = {};
+            const totalReferenceTerms = {};
+            const senateReferenceTerms = {};
+            const houseReferenceTerms = {};
+            const stateReferenceTerms = {};
+            const allYears = new Set();
+            const currentYear = new Date().getFullYear();
+            const msPerDay = 1000 * 60 * 60 * 24;
+
+            function addWeightedAge(container, state, year, age, weightDays, seatKey) {
+                if (!container[state]) {
+                    container[state] = {};
+                }
+                if (!container[state][year]) {
+                    container[state][year] = { weightedAgeSum: 0, weightSum: 0, seatKeys: {} };
+                }
+
+                container[state][year].weightedAgeSum += age * weightDays;
+                container[state][year].weightSum += weightDays;
+                container[state][year].seatKeys[seatKey] = true;
+            }
+
+            function addReferenceTerm(container, personId, birthday, termStart, termEnd) {
+                if (!birthday || Number.isNaN(birthday.getTime())) return;
+
+                if (!container[personId]) {
+                    container[personId] = {
+                        birthday,
+                        firstStart: termStart,
+                        lastEnd: termEnd
+                    };
+                    return;
+                }
+
+                if (termStart < container[personId].firstStart) {
+                    container[personId].firstStart = termStart;
+                }
+                if (termEnd > container[personId].lastEnd) {
+                    container[personId].lastEnd = termEnd;
+                }
+            }
+
+            function computeReferenceAverages(container) {
+                let startAgeSum = 0;
+                let retireAgeSum = 0;
+                let startCount = 0;
+                let retireCount = 0;
+
+                Object.values(container).forEach(entry => {
+                    const startAge = Utils.calculateAge(entry.birthday, entry.firstStart);
+                    if (Number.isFinite(startAge) && startAge > 0 && startAge < 120) {
+                        startAgeSum += startAge;
+                        startCount += 1;
+                    }
+
+                    const retireAge = Utils.calculateAge(entry.birthday, entry.lastEnd);
+                    if (Number.isFinite(retireAge) && retireAge > 0 && retireAge < 120) {
+                        retireAgeSum += retireAge;
+                        retireCount += 1;
+                    }
+                });
+
+                return {
+                    avgStartAge: startCount > 0 ? startAgeSum / startCount : null,
+                    avgRetireAge: retireCount > 0 ? retireAgeSum / retireCount : null,
+                    startCount,
+                    retireCount
+                };
+            }
+
+            data.forEach(person => {
+                if (!person.terms) return;
+
+                const birthday = person.bio?.birthday ? new Date(person.bio.birthday) : null;
+
+                person.terms.forEach(term => {
+                    // Skip executive branch terms for this state/chamber graph
+                    if (term.type === 'prez' || term.type === 'viceprez') {
+                        return;
+                    }
+
+                    const state = term.state;
+                    const chamber = term.type; // 'sen' or 'rep'
+                    const seatKey = chamber === 'sen' ?
+                        `${state}-Senate-Class-${term.class || 'Unknown'}` :
+                        getHouseSeatKey(state, term.district);
+                    const termStart = new Date(term.start);
+                    const termEnd = new Date(term.end);
+
+                    addReferenceTerm(totalReferenceTerms, Utils.getBioguideId(person), birthday, termStart, termEnd);
+                    if (!stateReferenceTerms[state]) {
+                        stateReferenceTerms[state] = {};
+                    }
+                    addReferenceTerm(stateReferenceTerms[state], Utils.getBioguideId(person), birthday, termStart, termEnd);
+                    if (chamber === 'sen') {
+                        addReferenceTerm(senateReferenceTerms, Utils.getBioguideId(person), birthday, termStart, termEnd);
+                    } else if (chamber === 'rep') {
+                        addReferenceTerm(houseReferenceTerms, Utils.getBioguideId(person), birthday, termStart, termEnd);
+                    }
+
+                    const startYear = termStart.getFullYear();
+                    const endYear = Math.min(termEnd.getFullYear(), currentYear);
+
+                    for (let year = startYear; year <= endYear; year++) {
+                        allYears.add(year);
+
+                        if (!birthday) continue;
+
+                        const yearStart = new Date(year, 0, 1);
+                        const yearEnd = new Date(year, 11, 31, 23, 59, 59, 999);
+                        const overlapStart = termStart > yearStart ? termStart : yearStart;
+                        const overlapEnd = termEnd < yearEnd ? termEnd : yearEnd;
+
+                        if (overlapEnd < overlapStart) continue;
+
+                        const midpointMs = overlapStart.getTime() + (overlapEnd.getTime() - overlapStart.getTime()) / 2;
+                        const midpointDate = new Date(midpointMs);
+                        const age = Utils.calculateAge(birthday, midpointDate);
+
+                        // Ignore malformed/outlier ages
+                        if (age <= 0 || age > 120) continue;
+
+                        const weightDays = Math.max(1, (overlapEnd.getTime() - overlapStart.getTime()) / msPerDay);
+
+                        addWeightedAge(stateYearAccumulator, state, year, age, weightDays, seatKey);
+
+                        if (chamber === 'sen') {
+                            addWeightedAge(senateStateYearAccumulator, state, year, age, weightDays, seatKey);
+                        } else if (chamber === 'rep') {
+                            addWeightedAge(houseStateYearAccumulator, state, year, age, weightDays, seatKey);
+                        }
+                    }
+                });
+            });
+
+            const cappedAllYears = Array.from(allYears).filter(year => year <= currentYear).sort((a, b) => a - b);
+            if (cappedAllYears.length === 0) {
+                d3.select('#timeline')
+                    .append('div')
+                    .style('padding', '20px')
+                    .style('text-align', 'center')
+                    .style('color', '#666')
+                    .text('No data available for average age graph view');
+                return;
+            }
+
+            const showTerritories = document.getElementById('showTerritories').checked;
+
+            function filterStatesByTerritory(source) {
+                const filtered = {};
+                Object.keys(source).forEach(state => {
+                    if (showTerritories || !isTerritoryOrNonState(state)) {
+                        filtered[state] = source[state];
+                    }
+                });
+                return filtered;
+            }
+
+            function aggregateAcrossStates(source) {
+                const result = {};
+                Object.values(source).forEach(yearMap => {
+                    Object.entries(yearMap).forEach(([year, entry]) => {
+                        if (!result[year]) {
+                            result[year] = { weightedAgeSum: 0, weightSum: 0, seatKeys: {} };
+                        }
+                        result[year].weightedAgeSum += entry.weightedAgeSum;
+                        result[year].weightSum += entry.weightSum;
+                        Object.keys(entry.seatKeys || {}).forEach(seatKey => {
+                            result[year].seatKeys[seatKey] = true;
+                        });
+                    });
+                });
+                return result;
+            }
+
+            function toAverageAgeData(accumulator) {
+                const averages = {};
+                Object.entries(accumulator).forEach(([year, entry]) => {
+                    if (entry.weightSum > 0) {
+                        averages[year] = {
+                            avgAge: entry.weightedAgeSum / entry.weightSum,
+                            samples: Object.keys(entry.seatKeys || {}).length,
+                            weightDays: entry.weightSum
+                        };
+                    }
+                });
+                return averages;
+            }
+
+            const filteredStateAccumulator = filterStatesByTerritory(stateYearAccumulator);
+            const filteredSenateStateAccumulator = filterStatesByTerritory(senateStateYearAccumulator);
+            const filteredHouseStateAccumulator = filterStatesByTerritory(houseStateYearAccumulator);
+            const filteredStateReferenceTerms = filterStatesByTerritory(stateReferenceTerms);
+
+            const totalCongressData = toAverageAgeData(aggregateAcrossStates(filteredStateAccumulator));
+            const senateData = toAverageAgeData(aggregateAcrossStates(filteredSenateStateAccumulator));
+            const houseData = toAverageAgeData(aggregateAcrossStates(filteredHouseStateAccumulator));
+
+            const stateAverageData = {};
+            Object.keys(filteredStateAccumulator).forEach(state => {
+                stateAverageData[state] = toAverageAgeData(filteredStateAccumulator[state]);
+            });
+
+            const stateReferenceAverages = {};
+            Object.keys(filteredStateReferenceTerms).forEach(state => {
+                stateReferenceAverages[state] = computeReferenceAverages(filteredStateReferenceTerms[state]);
+            });
+
+            const totalReferenceAverages = computeReferenceAverages(totalReferenceTerms);
+            const senateReferenceAverages = computeReferenceAverages(senateReferenceTerms);
+            const houseReferenceAverages = computeReferenceAverages(houseReferenceTerms);
+
+            function getMaxAverageAge(...datasets) {
+                let max = 0;
+                datasets.forEach(dataset => {
+                    if (!dataset) return;
+                    Object.values(dataset).forEach(entry => {
+                        if (entry && Number.isFinite(entry.avgAge) && entry.avgAge > max) {
+                            max = entry.avgAge;
+                        }
+                    });
+                });
+                return max;
+            }
+
+            const stateDatasets = Object.values(stateAverageData);
+            const globalMaxAverageAge = getMaxAverageAge(totalCongressData, senateData, houseData, ...stateDatasets);
+            const minAge = 25;
+            const dynamicMaxAge = Math.max(minAge, Math.ceil(globalMaxAverageAge / 10) * 10);
+
+            const globalMinDate = new Date(cappedAllYears[0], 0, 1);
+            const globalMaxDate = new Date(cappedAllYears[cappedAllYears.length - 1], 11, 31);
+
+            createAgeChamberTimeline('Total U.S. Congress', totalCongressData, globalMinDate, globalMaxDate, cappedAllYears, minAge, dynamicMaxAge, totalReferenceAverages);
+            createAgeChamberTimeline('U.S. Senate', senateData, globalMinDate, globalMaxDate, cappedAllYears, minAge, dynamicMaxAge, senateReferenceAverages);
+            createAgeChamberTimeline('U.S. House of Representatives', houseData, globalMinDate, globalMaxDate, cappedAllYears, minAge, dynamicMaxAge, houseReferenceAverages);
+
+            const sortedStates = Object.keys(stateAverageData).sort((a, b) => getFullStateName(a).localeCompare(getFullStateName(b)));
+            sortedStates.forEach(state => {
+                createAgeGraphTimeline(state, stateAverageData[state] || {}, globalMinDate, globalMaxDate, cappedAllYears, minAge, dynamicMaxAge, stateReferenceAverages[state]);
+            });
+
+            if (sortedStates.length === 0) {
+                d3.select('#timeline')
+                    .append('div')
+                    .style('padding', '20px')
+                    .style('text-align', 'center')
+                    .style('color', '#666')
+                    .text('No state data available for average age graph view');
+            }
+        }
+
+        function createAgeGraphTimeline(state, yearData, globalMinDate, globalMaxDate, allYears, minAge = 25, maxAge = 100, referenceAverages = null) {
+            const container = d3.select('#timeline');
+            const timelineHeight = 180;
+            const timelineWidth = window.innerWidth - 320;
+            const margin = { left: 250, right: 20, top: 10, bottom: 25 };
+
+            const stateContainer = container.append('div')
+                .attr('class', 'party-graph-container timeline-container')
+                .style('display', 'flex')
+                .style('align-items', 'stretch')
+                .style('margin-bottom', '1px');
+
+            const stateTitle = getFullStateName(state);
+            stateContainer.append('div')
+                .attr('class', 'party-graph-state-label')
+                .style('width', margin.left + 'px')
+                .style('height', timelineHeight + 'px')
+                .style('display', 'flex')
+                .style('align-items', 'center')
+                .style('justify-content', 'flex-start')
+                .text(stateTitle);
+
+            const timelineDiv = stateContainer.append('div')
+                .attr('class', 'party-graph-timeline')
+                .style('flex', '1')
+                .style('position', 'relative')
+                .style('height', timelineHeight + 'px');
+
+            const svg = timelineDiv.append('svg')
+                .attr('width', timelineWidth)
+                .attr('height', timelineHeight);
+
+            const timeScale = d3.scaleTime()
+                .domain([globalMinDate, globalMaxDate])
+                .range([0, timelineWidth - margin.right]);
+
+            const yScale = d3.scaleLinear()
+                .domain([minAge, maxAge])
+                .range([timelineHeight - margin.bottom, margin.top]);
+
+            if (Object.keys(yearData).length === 0) {
+                svg.append('text')
+                    .attr('x', (timelineWidth - margin.right) / 2)
+                    .attr('y', timelineHeight / 2)
+                    .attr('text-anchor', 'middle')
+                    .attr('fill', '#999')
+                    .attr('font-size', '12px')
+                    .text('No data');
+            }
+
+            const yTicks = [minAge];
+            for (let tick = Math.ceil(minAge / 10) * 10; tick <= maxAge; tick += 10) {
+                yTicks.push(tick);
+            }
+
+            yTicks.forEach(tickAge => {
+                const y = yScale(tickAge);
+                svg.append('line')
+                    .attr('x1', 0)
+                    .attr('x2', timelineWidth - margin.right)
+                    .attr('y1', y)
+                    .attr('y2', y)
+                    .attr('stroke', '#e8ecef')
+                    .attr('stroke-width', 1);
+            });
+
+            const barWidth = (timelineWidth - margin.right) / allYears.length;
+
+            Object.keys(yearData).forEach(year => {
+                const yearInt = parseInt(year);
+                const yearDate = new Date(yearInt, 6, 4);
+                const entry = yearData[year];
+                const clampedAge = Math.max(minAge, Math.min(maxAge, entry.avgAge));
+                const x = timeScale(yearDate) - barWidth / 2;
+                const y = yScale(clampedAge);
+                const h = yScale(minAge) - y;
+
+                svg.append('rect')
+                    .attr('class', 'age-bar')
+                    .attr('x', x)
+                    .attr('y', y)
+                    .attr('width', barWidth)
+                    .attr('height', Math.max(1, h))
+                    .attr('fill', getAgeGraphColor(clampedAge, minAge, maxAge))
+                    .on('mouseover', function(event) {
+                        showAgeGraphTooltip(event, stateTitle, yearInt, entry);
+                    })
+                    .on('mouseout', hideTooltip);
+            });
+
+            const referenceLines = [
+                { value: referenceAverages?.avgStartAge, color: '#2c7fb8' },
+                { value: referenceAverages?.avgRetireAge, color: '#8c2d04' }
+            ];
+
+            referenceLines.forEach(refLine => {
+                if (!Number.isFinite(refLine.value)) return;
+                const clamped = Math.max(minAge, Math.min(maxAge, refLine.value));
+                const y = yScale(clamped);
+
+                svg.append('line')
+                    .attr('x1', 0)
+                    .attr('x2', timelineWidth - margin.right)
+                    .attr('y1', y)
+                    .attr('y2', y)
+                    .attr('stroke', refLine.color)
+                    .attr('stroke-width', 2)
+                    .attr('stroke-dasharray', '6 4')
+                    .attr('opacity', 0.95);
+            });
+
+            const yAxis = d3.axisLeft(yScale)
+                .tickValues(yTicks)
+                .tickFormat(d => `${d}`);
+
+            svg.append('g')
+                .attr('class', 'axis')
+                .call(yAxis);
+
+            const xAxis = d3.axisBottom(timeScale)
+                .tickFormat(d3.timeFormat('%Y'))
+                .ticks(d3.timeYear.every(10));
+
+            svg.append('g')
+                .attr('class', 'axis')
+                .attr('transform', `translate(0, ${timelineHeight - margin.bottom})`)
+                .call(xAxis);
+        }
+
+        function createAgeChamberTimeline(title, yearData, globalMinDate, globalMaxDate, allYears, minAge = 25, maxAge = 100, referenceAverages = null) {
+            const container = d3.select('#timeline');
+            const timelineHeight = 210;
+            const timelineWidth = window.innerWidth - 320;
+            const margin = { left: 250, right: 20, top: 10, bottom: 30 };
+
+            const chamberContainer = container.append('div')
+                .attr('class', 'chamber-representation-container timeline-container')
+                .style('display', 'flex')
+                .style('align-items', 'stretch')
+                .style('margin-bottom', '20px')
+                .style('border-bottom', '2px solid #ddd')
+                .style('padding-bottom', '10px');
+
+            chamberContainer.append('div')
+                .attr('class', 'chamber-representation-label')
+                .style('width', margin.left + 'px')
+                .style('height', timelineHeight + 'px')
+                .style('display', 'flex')
+                .style('align-items', 'center')
+                .style('justify-content', 'flex-start')
+                .style('font-weight', 'bold')
+                .style('font-size', '16px')
+                .text(title);
+
+            const timelineDiv = chamberContainer.append('div')
+                .attr('class', 'chamber-representation-timeline')
+                .style('flex', '1')
+                .style('position', 'relative')
+                .style('height', timelineHeight + 'px');
+
+            const svg = timelineDiv.append('svg')
+                .attr('width', timelineWidth)
+                .attr('height', timelineHeight);
+
+            const timeScale = d3.scaleTime()
+                .domain([globalMinDate, globalMaxDate])
+                .range([0, timelineWidth - margin.right]);
+
+            const yScale = d3.scaleLinear()
+                .domain([minAge, maxAge])
+                .range([timelineHeight - margin.bottom, margin.top]);
+
+            if (Object.keys(yearData).length === 0) {
+                svg.append('text')
+                    .attr('x', (timelineWidth - margin.right) / 2)
+                    .attr('y', timelineHeight / 2)
+                    .attr('text-anchor', 'middle')
+                    .attr('fill', '#999')
+                    .attr('font-size', '14px')
+                    .text('No data');
+                return;
+            }
+
+            const yTicks = [minAge];
+            for (let tick = Math.ceil(minAge / 10) * 10; tick <= maxAge; tick += 10) {
+                yTicks.push(tick);
+            }
+
+            yTicks.forEach(tickAge => {
+                const y = yScale(tickAge);
+                svg.append('line')
+                    .attr('x1', 0)
+                    .attr('x2', timelineWidth - margin.right)
+                    .attr('y1', y)
+                    .attr('y2', y)
+                    .attr('stroke', '#dfe6eb')
+                    .attr('stroke-width', 1);
+            });
+
+            const barWidth = (timelineWidth - margin.right) / allYears.length;
+
+            Object.keys(yearData).forEach(year => {
+                const yearInt = parseInt(year);
+                const yearDate = new Date(yearInt, 6, 4);
+                const entry = yearData[year];
+                const clampedAge = Math.max(minAge, Math.min(maxAge, entry.avgAge));
+                const x = timeScale(yearDate) - barWidth / 2;
+                const y = yScale(clampedAge);
+                const h = yScale(minAge) - y;
+
+                svg.append('rect')
+                    .attr('class', 'chamber-age-bar')
+                    .attr('x', x)
+                    .attr('y', y)
+                    .attr('width', barWidth)
+                    .attr('height', Math.max(1, h))
+                    .attr('fill', getAgeGraphColor(clampedAge, minAge, maxAge))
+                    .on('mouseover', function(event) {
+                        showAgeGraphTooltip(event, title, yearInt, entry);
+                    })
+                    .on('mouseout', hideTooltip);
+            });
+
+            const referenceLines = [
+                { value: referenceAverages?.avgStartAge, color: '#2c7fb8' },
+                { value: referenceAverages?.avgRetireAge, color: '#8c2d04' }
+            ];
+
+            referenceLines.forEach(refLine => {
+                if (!Number.isFinite(refLine.value)) return;
+                const clamped = Math.max(minAge, Math.min(maxAge, refLine.value));
+                const y = yScale(clamped);
+
+                svg.append('line')
+                    .attr('x1', 0)
+                    .attr('x2', timelineWidth - margin.right)
+                    .attr('y1', y)
+                    .attr('y2', y)
+                    .attr('stroke', refLine.color)
+                    .attr('stroke-width', 2)
+                    .attr('stroke-dasharray', '6 4')
+                    .attr('opacity', 0.95);
+            });
+
+            const yAxis = d3.axisLeft(yScale)
+                .tickValues(yTicks)
+                .tickFormat(d => `${d}`);
+
+            svg.append('g')
+                .attr('class', 'axis')
+                .call(yAxis);
+
+            const xAxis = d3.axisBottom(timeScale)
+                .tickFormat(d3.timeFormat('%Y'))
+                .ticks(d3.timeYear.every(10));
+
+            svg.append('g')
+                .attr('class', 'axis')
+                .attr('transform', `translate(0, ${timelineHeight - margin.bottom})`)
+                .call(xAxis);
+        }
+
+        function showAgeGraphTooltip(event, label, year, entry) {
+            const tooltip = d3.select('#tooltip');
+            const avgAge = Number.isFinite(entry.avgAge) ? entry.avgAge.toFixed(1) : 'N/A';
+
+            tooltip
+                .style('opacity', 1)
+                .html(`
+                    <strong>${label} - ${year}</strong><br>
+                    Average age: ${avgAge}<br>
+                    Data points: ${entry.samples || 0}
+                `)
+                .style('left', (event.pageX + 10) + 'px')
+                .style('top', (event.pageY - 10) + 'px');
+        }
+
+        function createStateRepresentationChart(stateRepresentationData, globalMinDate, globalMaxDate, allYears, sortedStates) {
+            const container = d3.select('#timeline');
+            const chartHeight = Math.max(window.innerHeight - 220, 720);
+            const sidebarWidth = 250;
+            const chartWidth = Math.max(window.innerWidth - sidebarWidth - 110, 720);
+            const margin = { left: 55, right: 20, top: 15, bottom: 35 };
+            const selectedMetric = document.querySelector('input[name="stateRepresentationMetric"]:checked')?.value || 'percentage';
+            const selectedSeatBasis = document.querySelector('input[name="stateRepresentationSeatBasis"]:checked')?.value || 'above-baseline';
+            const isCountMetric = selectedMetric === 'count';
+            const isAllSeatsBasis = selectedSeatBasis === 'all-seats';
+
+            function getYearBasisTotal(year) {
+                return sortedStates.reduce((sum, state) => {
+                    const entry = stateRepresentationData[state]?.[year];
+                    if (!entry) return sum;
+                    return sum + (isAllSeatsBasis ? entry.seatCount : entry.extraSeats);
+                }, 0);
+            }
+
+            const maxYearBasisTotal = Math.max(1, ...allYears.map(getYearBasisTotal));
+
+            container.append('div')
+                .attr('class', 'state-representation-note')
+                .html(isAllSeatsBasis
+                    ? (isCountMetric
+                        ? 'Each even-year column uses quarterly max snapshots (Jan/Apr/Jul/Oct) before 1933, then a fixed July 1 snapshot from 1933 onward, and stacks the raw seat count by state including each state\'s base delegation.'
+                        : 'Each even-year column uses quarterly max snapshots (Jan/Apr/Jul/Oct) before 1933, then a fixed July 1 snapshot from 1933 onward, and sums to 100% of total congressional seats for each plotted year across states.')
+                    : (isCountMetric
+                        ? 'Each even-year column uses quarterly max snapshots (Jan/Apr/Jul/Oct) before 1933, then a fixed July 1 snapshot from 1933 onward, and stacks the raw number of above-baseline seats by state. Every state gets a baseline of 3 seats (2 Senate + 1 House), and only seats above that baseline are counted.'
+                        : 'Each even-year column uses quarterly max snapshots (Jan/Apr/Jul/Oct) before 1933, then a fixed July 1 snapshot from 1933 onward, and sums to 100% of seats above baseline. Every state gets a baseline of 3 seats (2 Senate + 1 House), then percentages are calculated only from the remaining seats.'));
+
+            const layout = container.append('div')
+                .attr('class', 'state-representation-layout timeline-container');
+
+            const sidebar = layout.append('div')
+                .attr('class', 'state-representation-sidebar');
+
+            sidebar.append('h4').text(isAllSeatsBasis
+                ? (isCountMetric ? 'Latest Total Seat Counts' : 'Latest Total Seat Shares')
+                : (isCountMetric ? 'Latest Above-Baseline Counts' : 'Latest Above-Baseline Shares'));
+            sidebar.append('p').text('Colors follow the stacked chart. States are ordered by year of statehood; hover a state to highlight its bars across time.');
+
+            function getAlternatingStateColor(index) {
+                // Use one continuous rainbow across all states, then alternate
+                // lightness so neighbors differ even when hues are close.
+                const totalStates = sortedStates.length;
+                const t = totalStates <= 1 ? 0 : index / (totalStates - 1);
+                const base = d3.hsl(d3.interpolateRainbow(t));
+
+                // 1-based odd states are lighter, even states are darker.
+                const isOneBasedOdd = index % 2 === 0;
+                const lightnessDelta = isOneBasedOdd ? 0.14 : -0.14;
+                const adjustedLightness = Math.max(0.22, Math.min(0.80, base.l + lightnessDelta));
+
+                return d3.hsl(base.h, base.s, adjustedLightness).formatHsl();
+            }
+
+            const stateColorScale = d3.scaleOrdinal()
+                .domain(sortedStates)
+                .range(sortedStates.map((state, index) => getAlternatingStateColor(index)));
+
+            function highlightStateBars(stateCode) {
+                d3.selectAll('.state-representation-bar')
+                    .classed('faded', function() {
+                        return this.getAttribute('data-state') !== stateCode;
+                    })
+                    .classed('highlighted', function() {
+                        return this.getAttribute('data-state') === stateCode;
+                    });
+
+                d3.selectAll('.state-representation-legend-item')
+                    .classed('active', function() {
+                        return this.getAttribute('data-state') === stateCode;
+                    });
+            }
+
+            function clearStateBarHighlight() {
+                d3.selectAll('.state-representation-bar')
+                    .classed('faded', false)
+                    .classed('highlighted', false);
+
+                d3.selectAll('.state-representation-legend-item')
+                    .classed('active', false);
+            }
+
+            function getLatestEntryForState(state) {
+                const yearMap = stateRepresentationData[state] || {};
+                for (let i = allYears.length - 1; i >= 0; i--) {
+                    const entry = yearMap[allYears[i]];
+                    if (entry) {
+                        return { year: allYears[i], ...entry };
+                    }
+                }
+                return null;
+            }
+
+            sortedStates.forEach(state => {
+                const latestEntry = getLatestEntryForState(state);
+                if (!latestEntry) return;
+
+                const item = sidebar.append('div')
+                    .attr('class', 'state-representation-legend-item')
+                    .attr('data-state', state)
+                    .on('mouseenter', function() {
+                        highlightStateBars(state);
+                    })
+                    .on('mouseleave', function() {
+                        clearStateBarHighlight();
+                    });
+
+                item.append('span')
+                    .attr('class', 'state-representation-swatch')
+                    .style('background-color', stateColorScale(state));
+
+                item.append('span')
+                    .text(isAllSeatsBasis
+                        ? (isCountMetric
+                            ? `${getFullStateName(state)}: ${latestEntry.seatCount} seats`
+                            : `${getFullStateName(state)}: ${latestEntry.seatCount} seats (${latestEntry.sharePercent.toFixed(1)}%)`)
+                        : (isCountMetric
+                            ? `${getFullStateName(state)}: +${latestEntry.extraSeats} seats`
+                            : `${getFullStateName(state)}: +${latestEntry.extraSeats} seats (${latestEntry.extraPoolSharePercent.toFixed(1)}%)`));
+            });
+
+            const chartDiv = layout.append('div')
+                .attr('class', 'state-representation-chart');
+
+            const svg = chartDiv.append('svg')
+                .attr('width', chartWidth)
+                .attr('height', chartHeight);
+
+            const plotWidth = chartWidth - margin.left - margin.right;
+            const plotHeight = chartHeight - margin.top - margin.bottom;
+
+            const plot = svg.append('g')
+                .attr('transform', `translate(${margin.left}, ${margin.top})`);
+
+            const timeScale = d3.scaleTime()
+                .domain([globalMinDate, globalMaxDate])
+                .range([0, plotWidth]);
+
+            const yScale = d3.scaleLinear()
+                .domain(isCountMetric ? [0, maxYearBasisTotal] : [0, 100])
+                .range([plotHeight, 0]);
+
+            const yTickValues = isCountMetric
+                ? d3.scaleLinear().domain([0, maxYearBasisTotal]).nice(5).ticks(5)
+                : [0, 25, 50, 75, 100];
+
+            yTickValues.forEach(tick => {
+                plot.append('line')
+                    .attr('x1', 0)
+                    .attr('x2', plotWidth)
+                    .attr('y1', yScale(tick))
+                    .attr('y2', yScale(tick))
+                    .attr('stroke', '#e5eaef')
+                    .attr('stroke-width', 1);
+            });
+
+            function getBarWidthForIndex(index) {
+                if (allYears.length <= 1) {
+                    return plotWidth;
+                }
+
+                const year = allYears[index];
+                const yearDate = new Date(year, 6, 4);
+
+                if (index < allYears.length - 1) {
+                    const nextYearDate = new Date(allYears[index + 1], 6, 4);
+                    return Math.max(1, timeScale(nextYearDate) - timeScale(yearDate));
+                }
+
+                const prevYearDate = new Date(allYears[index - 1], 6, 4);
+                return Math.max(1, timeScale(yearDate) - timeScale(prevYearDate));
+            }
+
+            allYears.forEach((year, index) => {
+                const yearDate = new Date(year, 6, 4);
+                const barWidth = getBarWidthForIndex(index);
+                const x = timeScale(yearDate) - (barWidth / 2);
+                let cumulativePercent = 0;
+
+                sortedStates.forEach(state => {
+                    const entry = stateRepresentationData[state]?.[year];
+                    const stateValue = isCountMetric
+                        ? (isAllSeatsBasis ? entry?.seatCount : entry?.extraSeats)
+                        : (isAllSeatsBasis ? entry?.sharePercent : entry?.extraPoolSharePercent);
+                    if (!entry || !stateValue || stateValue <= 0) {
+                        return;
+                    }
+
+                    const nextCumulative = cumulativePercent + stateValue;
+
+                    plot.append('rect')
+                        .attr('class', 'state-representation-bar')
+                        .attr('data-state', state)
+                        .attr('x', x)
+                        .attr('y', yScale(nextCumulative))
+                        .attr('width', barWidth)
+                        .attr('height', Math.max(1, yScale(cumulativePercent) - yScale(nextCumulative)))
+                        .attr('fill', stateColorScale(state))
+                        .on('mouseover', function(event) {
+                            showStateRepresentationTooltip(event, state, year, entry);
+                        })
+                        .on('mouseout', hideTooltip);
+
+                    cumulativePercent = nextCumulative;
+                });
+            });
+
+            const yAxis = d3.axisLeft(yScale)
+                .tickValues(yTickValues)
+                .tickFormat(d => isCountMetric ? `${Math.round(d)}` : `${d}%`);
+
+            plot.append('g')
+                .attr('class', 'axis')
+                .call(yAxis);
+
+            const xAxis = d3.axisBottom(timeScale)
+                .tickFormat(d3.timeFormat('%Y'))
+                .ticks(d3.timeYear.every(10));
+
+            plot.append('g')
+                .attr('class', 'axis')
+                .attr('transform', `translate(0, ${plotHeight})`)
+                .call(xAxis);
+        }
+
+        function showStateRepresentationTooltip(event, state, year, entry) {
+            const tooltip = d3.select('#tooltip');
+            const fullStateName = getFullStateName(state);
+            const baselineSeats = entry.baselineSeats || 3;
+            const extraVsBaselinePercent = baselineSeats > 0
+                ? ((entry.seatCount - baselineSeats) / baselineSeats) * 100
+                : 0;
+
+            tooltip
+                .style('opacity', 1)
+                .html(`
+                    <strong>${fullStateName} - ${year}</strong><br>
+                    Seats held: ${entry.seatCount} of ${entry.totalSeats}<br>
+                    Share of above-baseline pool: ${entry.extraPoolSharePercent.toFixed(2)}%<br>
+                    Total above-baseline seats that year: ${entry.totalExtraSeats}<br>
+                    Baseline delegation: ${baselineSeats} seats<br>
+                    Above baseline: +${entry.extraSeats} seats (${entry.extraSharePercent.toFixed(2)}% of Congress)<br>
+                    Growth vs baseline: ${extraVsBaselinePercent >= 0 ? '+' : ''}${extraVsBaselinePercent.toFixed(1)}%
+                `)
+                .style('left', (event.pageX + 10) + 'px')
+                .style('top', (event.pageY - 10) + 'px');
+        }
+
+        function processAndVisualizeIncumbencyGraph(data) {
+            AppState.currentData = data;
+
+            document.getElementById('timeline').innerHTML = '';
+            document.getElementById('legend').style.display = 'flex';
+            document.getElementById('viewControls').style.display = 'block';
+
+            const showTerritories = document.getElementById('showTerritories').checked;
+            const currentYear = new Date().getFullYear();
+
+            const personTerms = {};
+            const cycleYearsSet = new Set();
+
+            function getCycleYearFromStart(startDate) {
+                const y = startDate.getFullYear();
+                return y % 2 === 1 ? y : y - 1;
+            }
+
+            function ensureCycleBucket(map, key, cycleYear) {
+                if (!map[key]) map[key] = {};
+                if (!map[key][cycleYear]) {
+                    map[key][cycleYear] = { incumbent: 0, returning: 0, new: 0, total: 0 };
+                }
+                return map[key][cycleYear];
+            }
+
+            // First pass: collect all congressional terms per person for service-history checks.
+            data.forEach(person => {
+                if (!person.terms) return;
+                const personId = Utils.getBioguideId(person);
+                if (!personTerms[personId]) personTerms[personId] = [];
+
+                person.terms.forEach(term => {
+                    if (term.type !== 'sen' && term.type !== 'rep') return;
+
+                    const start = new Date(term.start);
+                    const end = new Date(term.end);
+                    personTerms[personId].push({ start, end, chamber: term.type, state: term.state });
+                });
+            });
+
+            Object.values(personTerms).forEach(terms => {
+                terms.sort((a, b) => a.start - b.start);
+            });
+
+            const stateCycleCounts = {};
+            const senateCycleCounts = {};
+            const houseCycleCounts = {};
+
+            // Count one election outcome per seat per 2-year cycle.
+            // This avoids inflating values when multiple term records exist in a single cycle.
+            const cycleSeatEvents = {};
+
+            data.forEach(person => {
+                if (!person.terms) return;
+
+                const personId = Utils.getBioguideId(person);
+
+                person.terms.forEach(term => {
+                    if (term.type !== 'sen' && term.type !== 'rep') return;
+
+                    const start = new Date(term.start);
+                    if (start.getFullYear() > currentYear) return;
+
+                    const cycleYear = getCycleYearFromStart(start);
+                    if (cycleYear > currentYear) return;
+
+                    const state = term.state;
+                    const chamber = term.type;
+                    const seatKey = chamber === 'sen'
+                        ? `${state}-Senate-Class-${term.class || 'Unknown'}`
+                        : getHouseSeatKey(state, term.district);
+
+                    const eventKey = `${cycleYear}|${seatKey}`;
+                    const existingEvent = cycleSeatEvents[eventKey];
+
+                    if (!existingEvent || start < existingEvent.start) {
+                        cycleSeatEvents[eventKey] = {
+                            cycleYear,
+                            state,
+                            chamber,
+                            start,
+                            personId,
+                            seatClass: term.class,
+                            district: term.district
+                        };
+                    }
+                });
+            });
+
+            const seatHistory = {};
+            Object.values(cycleSeatEvents).forEach(event => {
+                const seatKey = event.chamber === 'sen'
+                    ? `${event.state}-Senate-Class-${event.seatClass || 'Unknown'}`
+                    : getHouseSeatKey(event.state, event.district);
+                if (!seatHistory[seatKey]) {
+                    seatHistory[seatKey] = [];
+                }
+                seatHistory[seatKey].push(event);
+            });
+
+            Object.values(seatHistory).forEach(events => {
+                events.sort((a, b) => a.start - b.start);
+            });
+
+            Object.values(cycleSeatEvents).forEach(event => {
+                const { cycleYear, state, chamber, start, personId } = event;
+                const allTermsForPerson = personTerms[personId] || [];
+
+                cycleYearsSet.add(cycleYear);
+
+                // Include contiguous terms where previous end equals current start.
+                const priorTerms = allTermsForPerson.filter(t => t.end <= start);
+
+                // Incumbent and returning are both scoped to the same chamber and state.
+                // A House->Senate transition is therefore neither incumbent nor returning.
+                const comparablePriorTerms = priorTerms.filter(t => t.chamber === chamber && t.state === state);
+                const hadPriorComparableService = comparablePriorTerms.length > 0;
+
+                // Determine incumbency by seat succession, not date windows.
+                // This handles pre-1933 transition gaps and Senate's 6-year class cadence.
+                const currentSeatKey = chamber === 'sen'
+                    ? `${state}-Senate-Class-${event.seatClass || 'Unknown'}`
+                    : getHouseSeatKey(state, event.district);
+                const seatEvents = seatHistory[currentSeatKey] || [];
+                const priorSeatEvents = seatEvents.filter(seatEvent => seatEvent.start < start);
+                const previousSeatEvent = priorSeatEvents.length > 0 ? priorSeatEvents[priorSeatEvents.length - 1] : null;
+                const isSeatIncumbent = previousSeatEvent && previousSeatEvent.personId === personId;
+
+                let status;
+                if (isSeatIncumbent) {
+                    status = 'incumbent';
+                } else if (hadPriorComparableService) {
+                    status = 'returning';
+                } else {
+                    status = 'new';
+                }
+
+                const stateBucket = ensureCycleBucket(stateCycleCounts, state, cycleYear);
+                stateBucket[status] += 1;
+                stateBucket.total += 1;
+
+                if (chamber === 'sen') {
+                    const senateBucket = ensureCycleBucket(senateCycleCounts, 'senate', cycleYear);
+                    senateBucket[status] += 1;
+                    senateBucket.total += 1;
+                } else if (chamber === 'rep') {
+                    const houseBucket = ensureCycleBucket(houseCycleCounts, 'house', cycleYear);
+                    houseBucket[status] += 1;
+                    houseBucket.total += 1;
+                }
+            });
+
+            function toPercentData(cycleMap) {
+                const percentMap = {};
+                Object.entries(cycleMap).forEach(([cycleYear, counts]) => {
+                    if (counts.total > 0) {
+                        percentMap[cycleYear] = {
+                            incumbentPercent: (counts.incumbent / counts.total) * 100,
+                            returningPercent: (counts.returning / counts.total) * 100,
+                            newPercent: (counts.new / counts.total) * 100,
+                            incumbentCount: counts.incumbent,
+                            returningCount: counts.returning,
+                            newCount: counts.new,
+                            totalCount: counts.total
+                        };
+                    }
+                });
+                return percentMap;
+            }
+
+            const filteredStateCycleCounts = {};
+            Object.keys(stateCycleCounts).forEach(state => {
+                if (showTerritories || !isTerritoryOrNonState(state)) {
+                    filteredStateCycleCounts[state] = stateCycleCounts[state];
+                }
+            });
+
+            const senatePercentData = toPercentData(senateCycleCounts.senate || {});
+            const housePercentData = toPercentData(houseCycleCounts.house || {});
+
+            const totalCycleCounts = {};
+            Object.values(filteredStateCycleCounts).forEach(cycleMap => {
+                Object.entries(cycleMap).forEach(([cycleYear, counts]) => {
+                    if (!totalCycleCounts[cycleYear]) {
+                        totalCycleCounts[cycleYear] = { incumbent: 0, returning: 0, new: 0, total: 0 };
+                    }
+                    totalCycleCounts[cycleYear].incumbent += counts.incumbent;
+                    totalCycleCounts[cycleYear].returning += counts.returning;
+                    totalCycleCounts[cycleYear].new += counts.new;
+                    totalCycleCounts[cycleYear].total += counts.total;
+                });
+            });
+
+            const totalPercentData = toPercentData(totalCycleCounts);
+
+            const statePercentData = {};
+            Object.keys(filteredStateCycleCounts).forEach(state => {
+                statePercentData[state] = toPercentData(filteredStateCycleCounts[state]);
+            });
+
+            const sortedCycles = Array.from(cycleYearsSet)
+                .filter(y => y <= currentYear)
+                .sort((a, b) => a - b);
+
+            if (sortedCycles.length === 0) {
+                d3.select('#timeline')
+                    .append('div')
+                    .style('padding', '20px')
+                    .style('text-align', 'center')
+                    .style('color', '#666')
+                    .text('No data available for incumbency graph view');
+                return;
+            }
+
+            const globalMinDate = new Date(sortedCycles[0], 0, 1);
+            const globalMaxDate = new Date(sortedCycles[sortedCycles.length - 1] + 1, 11, 31);
+
+            createIncumbencyChamberTimeline('Total U.S. Congress', totalPercentData, globalMinDate, globalMaxDate, sortedCycles);
+            createIncumbencyChamberTimeline('U.S. Senate', senatePercentData, globalMinDate, globalMaxDate, sortedCycles);
+            createIncumbencyChamberTimeline('U.S. House of Representatives', housePercentData, globalMinDate, globalMaxDate, sortedCycles);
+
+            const sortedStates = Object.keys(statePercentData).sort((a, b) => getFullStateName(a).localeCompare(getFullStateName(b)));
+            sortedStates.forEach(state => {
+                createIncumbencyStateTimeline(state, statePercentData[state] || {}, globalMinDate, globalMaxDate, sortedCycles);
+            });
+
+            if (sortedStates.length === 0) {
+                d3.select('#timeline')
+                    .append('div')
+                    .style('padding', '20px')
+                    .style('text-align', 'center')
+                    .style('color', '#666')
+                    .text('No state data available for incumbency graph view');
+            }
+        }
+
+        function createIncumbencyStateTimeline(state, cycleData, globalMinDate, globalMaxDate, cycleYears) {
+            const container = d3.select('#timeline');
+            const timelineHeight = 165;
+            const timelineWidth = window.innerWidth - 320;
+            const margin = { left: 250, right: 20, top: 10, bottom: 22 };
+
+            const stateContainer = container.append('div')
+                .attr('class', 'party-graph-container timeline-container')
+                .style('display', 'flex')
+                .style('align-items', 'stretch')
+                .style('margin-bottom', '1px');
+
+            const stateTitle = getFullStateName(state);
+            stateContainer.append('div')
+                .attr('class', 'party-graph-state-label')
+                .style('width', margin.left + 'px')
+                .style('height', timelineHeight + 'px')
+                .style('display', 'flex')
+                .style('align-items', 'center')
+                .style('justify-content', 'flex-start')
+                .text(stateTitle);
+
+            const timelineDiv = stateContainer.append('div')
+                .attr('class', 'party-graph-timeline')
+                .style('flex', '1')
+                .style('position', 'relative')
+                .style('height', timelineHeight + 'px');
+
+            const svg = timelineDiv.append('svg')
+                .attr('width', timelineWidth)
+                .attr('height', timelineHeight);
+
+            const timeScale = d3.scaleTime()
+                .domain([globalMinDate, globalMaxDate])
+                .range([0, timelineWidth - margin.right]);
+
+            const barWidth = (timelineWidth - margin.right) / Math.max(1, cycleYears.length);
+
+            Object.keys(cycleData).forEach(cycleYear => {
+                const yearInt = parseInt(cycleYear);
+                const yearDate = new Date(yearInt, 6, 4);
+                const d = cycleData[cycleYear];
+                const x = timeScale(yearDate) - barWidth / 2;
+
+                let currentY = timelineHeight - margin.bottom;
+                const availableH = timelineHeight - margin.top - margin.bottom;
+
+                const segments = [
+                    { key: 'incumbentPercent', className: 'incumbency-incumbent' },
+                    { key: 'returningPercent', className: 'incumbency-returning' },
+                    { key: 'newPercent', className: 'incumbency-new' }
+                ];
+
+                segments.forEach(segment => {
+                    const percent = d[segment.key] || 0;
+                    if (percent <= 0) return;
+
+                    const h = (percent / 100) * availableH;
+                    svg.append('rect')
+                        .attr('x', x)
+                        .attr('y', currentY - h)
+                        .attr('width', barWidth)
+                        .attr('height', Math.max(1, h))
+                        .attr('class', segment.className)
+                        .on('mouseover', function(event) {
+                            showIncumbencyTooltip(event, stateTitle, yearInt, d);
+                        })
+                        .on('mouseout', hideTooltip);
+
+                    currentY -= h;
+                });
+            });
+
+            const xAxis = d3.axisBottom(timeScale)
+                .tickFormat(d3.timeFormat('%Y'))
+                .ticks(d3.timeYear.every(10));
+
+            svg.append('g')
+                .attr('class', 'axis')
+                .attr('transform', `translate(0, ${timelineHeight - margin.bottom})`)
+                .call(xAxis);
+
+            const fiftyPercentY = timelineHeight - margin.bottom - ((timelineHeight - margin.top - margin.bottom) * 0.5);
+            svg.append('line')
+                .attr('x1', 0)
+                .attr('x2', timelineWidth - margin.right)
+                .attr('y1', fiftyPercentY)
+                .attr('y2', fiftyPercentY)
+                .attr('stroke', 'white')
+                .attr('stroke-width', 1)
+                .attr('opacity', 0.8);
+        }
+
+        function createIncumbencyChamberTimeline(title, cycleData, globalMinDate, globalMaxDate, cycleYears) {
+            const container = d3.select('#timeline');
+            const timelineHeight = 200;
+            const timelineWidth = window.innerWidth - 320;
+            const margin = { left: 250, right: 20, top: 10, bottom: 28 };
+
+            const chamberContainer = container.append('div')
+                .attr('class', 'chamber-representation-container timeline-container')
+                .style('display', 'flex')
+                .style('align-items', 'stretch')
+                .style('margin-bottom', '20px')
+                .style('border-bottom', '2px solid #ddd')
+                .style('padding-bottom', '10px');
+
+            chamberContainer.append('div')
+                .attr('class', 'chamber-representation-label')
+                .style('width', margin.left + 'px')
+                .style('height', timelineHeight + 'px')
+                .style('display', 'flex')
+                .style('align-items', 'center')
+                .style('justify-content', 'flex-start')
+                .style('font-weight', 'bold')
+                .style('font-size', '16px')
+                .text(title);
+
+            const timelineDiv = chamberContainer.append('div')
+                .attr('class', 'chamber-representation-timeline')
+                .style('flex', '1')
+                .style('position', 'relative')
+                .style('height', timelineHeight + 'px');
+
+            const svg = timelineDiv.append('svg')
+                .attr('width', timelineWidth)
+                .attr('height', timelineHeight);
+
+            const timeScale = d3.scaleTime()
+                .domain([globalMinDate, globalMaxDate])
+                .range([0, timelineWidth - margin.right]);
+
+            if (Object.keys(cycleData).length === 0) {
+                svg.append('text')
+                    .attr('x', (timelineWidth - margin.right) / 2)
+                    .attr('y', timelineHeight / 2)
+                    .attr('text-anchor', 'middle')
+                    .attr('fill', '#999')
+                    .attr('font-size', '14px')
+                    .text('No data');
+                return;
+            }
+
+            const barWidth = (timelineWidth - margin.right) / Math.max(1, cycleYears.length);
+
+            Object.keys(cycleData).forEach(cycleYear => {
+                const yearInt = parseInt(cycleYear);
+                const yearDate = new Date(yearInt, 6, 4);
+                const d = cycleData[cycleYear];
+                const x = timeScale(yearDate) - barWidth / 2;
+
+                let currentY = timelineHeight - margin.bottom;
+                const availableH = timelineHeight - margin.top - margin.bottom;
+
+                const segments = [
+                    { key: 'incumbentPercent', className: 'incumbency-incumbent' },
+                    { key: 'returningPercent', className: 'incumbency-returning' },
+                    { key: 'newPercent', className: 'incumbency-new' }
+                ];
+
+                segments.forEach(segment => {
+                    const percent = d[segment.key] || 0;
+                    if (percent <= 0) return;
+
+                    const h = (percent / 100) * availableH;
+                    svg.append('rect')
+                        .attr('x', x)
+                        .attr('y', currentY - h)
+                        .attr('width', barWidth)
+                        .attr('height', Math.max(1, h))
+                        .attr('class', segment.className)
+                        .on('mouseover', function(event) {
+                            showIncumbencyTooltip(event, title, yearInt, d);
+                        })
+                        .on('mouseout', hideTooltip);
+
+                    currentY -= h;
+                });
+            });
+
+            const xAxis = d3.axisBottom(timeScale)
+                .tickFormat(d3.timeFormat('%Y'))
+                .ticks(d3.timeYear.every(10));
+
+            svg.append('g')
+                .attr('class', 'axis')
+                .attr('transform', `translate(0, ${timelineHeight - margin.bottom})`)
+                .call(xAxis);
+
+            const fiftyPercentY = timelineHeight - margin.bottom - ((timelineHeight - margin.top - margin.bottom) * 0.5);
+            svg.append('line')
+                .attr('x1', 0)
+                .attr('x2', timelineWidth - margin.right)
+                .attr('y1', fiftyPercentY)
+                .attr('y2', fiftyPercentY)
+                .attr('stroke', 'white')
+                .attr('stroke-width', 1)
+                .attr('opacity', 0.8);
+        }
+
+        function showIncumbencyTooltip(event, label, cycleYear, data) {
+            const tooltip = d3.select('#tooltip');
+
+            tooltip
+                .style('opacity', 1)
+                .html(`
+                    <strong>${label} - ${cycleYear} cycle</strong><br>
+                    Incumbent: ${(data.incumbentPercent || 0).toFixed(1)}% (${data.incumbentCount || 0})<br>
+                    Returning: ${(data.returningPercent || 0).toFixed(1)}% (${data.returningCount || 0})<br>
+                    New: ${(data.newPercent || 0).toFixed(1)}% (${data.newCount || 0})<br>
+                    Seats counted this cycle: ${data.totalCount || 0}
+                `)
+                .style('left', (event.pageX + 10) + 'px')
+                .style('top', (event.pageY - 10) + 'px');
         }
 
         function normalizePartyForGraph(party) {
@@ -4306,7 +5994,7 @@
                 if (term.chamber === 'sen') {
                     uniqueSeats.add(`${term.state}-Senate-Class-${term.class || 'Unknown'}`);
                 } else {
-                    uniqueSeats.add(`${term.state}-House-District-${term.district || 'At-Large'}`);
+                    uniqueSeats.add(getHouseSeatKey(term.state, term.district));
                 }
             });
             
@@ -4548,7 +6236,7 @@
                     <strong>${personName}</strong><br>
                     ${term.party || 'Unknown Party'}<br>
                     ${startDate} - ${endDate}<br>
-                    ${term.state} ${term.class ? `Class ${term.class}` : (term.district ? `District ${term.district}` : '')}
+                    ${term.state} ${term.class ? `Class ${term.class}` : `District ${getHouseDistrictLabel(term.district)}`}
                 `)
                 .style('left', (event.pageX + 10) + 'px')
                 .style('top', (event.pageY - 10) + 'px');
@@ -4569,7 +6257,7 @@
             
             const seatDescription = term.chamber === 'sen' ? 
                 `${term.state} Senate Class ${term.class}` : 
-                `${term.state} District ${term.district || 'At-Large'}`;
+                `${term.state} District ${getHouseDistrictLabel(term.district)}`;
             
             tooltip
                 .style('opacity', 1)
@@ -4664,7 +6352,7 @@
             const chamberText = term.chamber === 'sen' ? 'Senate' : 'House';
             const seatInfo = term.chamber === 'sen' ? 
                 (term.class ? `Class ${term.class}` : '') : 
-                (term.district ? `District ${term.district}` : 'At-Large');
+                `District ${getHouseDistrictLabel(term.district)}`;
             
             tooltip
                 .style('opacity', 1)
