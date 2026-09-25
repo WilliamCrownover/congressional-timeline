@@ -1,7 +1,4 @@
-# Ignore downloaded portrait images
-images/
-
-# Ignore common development files
+# Common development files
 .DS_Store
 Thumbs.db
 *.log

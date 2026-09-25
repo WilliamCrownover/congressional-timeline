@@ -488,7 +488,7 @@
             
             try {
                 const [congressionalResponse, presidentialResponse] = await Promise.all([
-                    fetch('./example-data.json'),
+                    fetch('./current-congress.json'),
                     fetch('./presidential-data.json')
                 ]);
                 if (!congressionalResponse.ok) throw new Error('Failed to load congressional data');
