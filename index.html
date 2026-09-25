@@ -965,6 +965,18 @@
         // Initialize localStorage cache on page load
         ImageCache.loadFromStorage();
 
+        // Shared onerror fallback for portrait <img> elements; guards against
+        // looping if the placeholder itself ever fails to load.
+        function handlePortraitError(imgEl, bioguide) {
+            if (bioguide) AppState.imageCache.missing.add(bioguide);
+            if (imgEl.dataset.fallbackApplied) {
+                imgEl.style.visibility = 'hidden';
+                return;
+            }
+            imgEl.dataset.fallbackApplied = 'true';
+            imgEl.src = 'images/placeholder_square.png';
+        }
+
         // Utility functions module
         const Utils = {
             formatPersonName(person) {
@@ -5390,17 +5402,17 @@
                     if (isKnownExisting) {
                         // We know it exists, use real image
                         imageUrl = `images/${bioguide}.jpg`;
-                        onErrorHandler = ''; // No error handler needed
+                        onErrorHandler = `handlePortraitError(this, '${bioguide}');`; // Still guard in case it fails now
                         onLoadHandler = ''; // Already cached
                     } else if (isKnownMissing) {
                         // We know it's missing, use placeholder
                         imageUrl = 'images/placeholder_square.png';
-                        onErrorHandler = ''; // No error handler needed  
+                        onErrorHandler = `handlePortraitError(this, '${bioguide}');`; // Guard against a broken placeholder
                         onLoadHandler = ''; // No load handler needed
                     } else {
                         // Unknown status, try real image with fallback
                         imageUrl = `images/${bioguide}.jpg`;
-                        onErrorHandler = `this.src='images/placeholder_square.png'; AppState.imageCache.missing.add('${bioguide}');`;
+                        onErrorHandler = `handlePortraitError(this, '${bioguide}');`;
                         onLoadHandler = `AppState.imageCache.existing.add('${bioguide}');`;
                     }
                     
@@ -5413,7 +5425,7 @@
                         loading="lazy"
                         decoding="async"
                         style="width: 25px; height: 25px; object-fit: cover; border-radius: 3px; margin-right: 8px; flex-shrink: 0;"
-                        ${onErrorHandler ? `onerror="${onErrorHandler}"` : ''}
+                        onerror="${onErrorHandler}"
                         ${onLoadHandler ? `onload="${onLoadHandler}"` : ''}>`;
                     
                     
@@ -6394,17 +6406,17 @@
             if (isKnownExisting) {
                 // We know it exists, use real image
                 imageUrl = `images/${bioguide}.jpg`;
-                onErrorHandler = ''; // No error handler needed
+                onErrorHandler = `handlePortraitError(this, '${bioguide}');`; // Still guard in case it fails now
                 onLoadHandler = ''; // Already cached
             } else if (isKnownMissing) {
                 // We know it's missing, use placeholder
                 imageUrl = 'images/placeholder_square.png';
-                onErrorHandler = ''; // No error handler needed  
+                onErrorHandler = `handlePortraitError(this, '${bioguide}');`; // Guard against a broken placeholder
                 onLoadHandler = ''; // No load handler needed
             } else {
                 // Unknown status, try real image with fallback
                 imageUrl = `images/${bioguide}.jpg`;
-                onErrorHandler = `this.src='images/placeholder_square.png'; AppState.imageCache.missing.add('${bioguide}');`;
+                onErrorHandler = `handlePortraitError(this, '${bioguide}');`;
                 onLoadHandler = `AppState.imageCache.existing.add('${bioguide}');`;
             }
 
@@ -6413,7 +6425,7 @@
             const tooltipContent = `
                 <img src="${imageUrl}" alt="${safeName}" 
                      decoding="async"
-                     ${onErrorHandler ? `onerror="${onErrorHandler}"` : ''}
+                     onerror="${onErrorHandler}"
                      ${onLoadHandler ? `onload="${onLoadHandler}"` : ''}>
                 <div class="name">${safeName}</div>
                 <div class="bioguide">Portrait ID: ${bioguide}</div>
